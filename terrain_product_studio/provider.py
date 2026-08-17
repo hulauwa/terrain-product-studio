@@ -33,4 +33,4 @@ class TerrainStudioProvider(QgsProcessingProvider):
         return self.name()
 
     def icon(self):
-        return QIcon(os.path.join(os.path.dirname(__file__), "icons", "terrain_studio.svg"))
+        return QIcon(os.path.join(os.path.dirname(__file__), "icons", "terrain_studio.png"))

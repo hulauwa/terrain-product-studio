@@ -46,7 +46,7 @@ class TerrainProductStudioPlugin:
         if self.iface is None:
             return
 
-        icon_path = os.path.join(os.path.dirname(__file__), "icons", "terrain_studio.svg")
+        icon_path = os.path.join(os.path.dirname(__file__), "icons", "terrain_studio.png")
         self.action = QAction(QIcon(icon_path), self.tr("Terrain Product Studio"), self.iface.mainWindow())
         self.action.setObjectName("terrainProductStudioAction")
         self.action.setCheckable(True)

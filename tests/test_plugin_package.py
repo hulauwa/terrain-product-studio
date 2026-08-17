@@ -15,7 +15,7 @@ class PluginPackageTests(unittest.TestCase):
             "plugin.py",
             "provider.py",
             "dock.py",
-            "icons/terrain_studio.svg",
+            "icons/terrain_studio.png",
         )
         for relative_path in required:
             self.assertTrue(os.path.isfile(os.path.join(PLUGIN, relative_path)), relative_path)
