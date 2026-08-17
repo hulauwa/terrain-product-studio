@@ -986,7 +986,7 @@ def generate_3d_web_viewer(
 
       let ans = "Terrain analysis report: ";
       if (q.includes("landslide") || q.includes("hazard") || q.includes("risk") || q.includes("sat lo")) {{
-        ans += `High landslide risk areas are concentrated on slopes > 25°. Mean elevation of critical areas: ${(MIN_Z + Z_SPAN*0.65).toFixed(0)}m.`;
+        ans += `High landslide risk areas are concentrated on slopes > 25°. Mean elevation of critical areas: ${{(MIN_Z + Z_SPAN*0.65).toFixed(0)}}m.`;
       }} else if (q.includes("peak") || q.includes("highest") || q.includes("dinh")) {{
         ans += `The highest peak in this survey area reaches ${{Math.round(MAX_Z)}}m, with total relief of ${{Math.round(Z_SPAN)}}m.`;
       }} else if (q.includes("suitability") || q.includes("construction") || q.includes("building") || q.includes("xay dung")) {{
