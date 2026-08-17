@@ -33,6 +33,7 @@ def main():
         expected = {
             "terrainstudio:inspectdem",
             "terrainstudio:buildterrainpackage",
+            "terrainstudio:buildhydrology",
         }
         if set(algorithms) != expected:
             raise RuntimeError(f"Unexpected algorithms: {sorted(algorithms)}")

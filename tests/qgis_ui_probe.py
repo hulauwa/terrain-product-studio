@@ -32,11 +32,23 @@ class TerrainStudioUiProbe(QgsProcessingAlgorithm):
         workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         sys.path.insert(0, workspace)
         try:
+            from qgis.PyQt.QtWidgets import QGridLayout, QScrollArea
+
             from terrain_product_studio.dock import TerrainStudioDock
 
             dock = TerrainStudioDock(None)
-            if len(dock.products) != 8:
-                raise RuntimeError("Unexpected product checkbox count")
+            if len(dock.products) != 15:
+                raise RuntimeError(f"Unexpected product checkbox count: {len(dock.products)}")
+            scroll = dock.widget()
+            if not isinstance(scroll, QScrollArea):
+                raise RuntimeError("Dock body is not wrapped in a QScrollArea")
+            if not scroll.widgetResizable():
+                raise RuntimeError("Scroll area must be widget-resizable")
+            if dock.run_button is None or not dock.run_button.isEnabled():
+                raise RuntimeError("Run button missing or disabled")
+            products_tab = dock.tabs.widget(0)
+            if not isinstance(products_tab.layout(), QGridLayout):
+                raise RuntimeError("Products tab should use the compact 2-column grid")
             dock.close()
             dock.deleteLater()
             feedback.pushInfo("Dock constructed successfully")

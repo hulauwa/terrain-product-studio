@@ -8,3 +8,7 @@ tss/
 .idea/
 .vscode/
 *.egg-info/
+
+# Local Claude Code environment (machine-specific paths, Keychain helpers)
+.claude/
+

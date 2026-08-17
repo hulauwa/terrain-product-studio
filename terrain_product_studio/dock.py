@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 
-from qgis.PyQt.QtCore import QDir, QCoreApplication, QUrl
-from qgis.PyQt.QtGui import QFont, QDesktopServices
+from qgis.PyQt.QtCore import QDir, QCoreApplication, QUrl, Qt
+from qgis.PyQt.QtGui import QFontDatabase, QDesktopServices
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -13,7 +13,7 @@ from qgis.PyQt.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
-    QFontComboBox,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -23,6 +23,7 @@ from qgis.PyQt.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -65,6 +66,7 @@ class TerrainStudioDock(QDockWidget):
         self._run_parameters = None
         self._terrain_results = None
         self._phase = None
+        self._fonts_populated = False
         self._build_ui()
         self._connect_signals()
         self._on_layer_changed(self.dem_combo.currentLayer())
@@ -74,6 +76,9 @@ class TerrainStudioDock(QDockWidget):
         return QCoreApplication.translate("TerrainStudioDock", message)
 
     def _build_ui(self):
+        # Body is wrapped in a QScrollArea so every control stays reachable
+        # when the dock is docked into a small area (the Run button was being
+        # clipped away on shorter screens with the previous fixed-size dock).
         body = QWidget(self)
         outer = QVBoxLayout(body)
         outer.setContentsMargins(8, 8, 8, 8)
@@ -149,7 +154,7 @@ class TerrainStudioDock(QDockWidget):
         self.tabs.addTab(self._create_products_tab(), self.tr("Products"))
         self.tabs.addTab(self._create_contour_tab(), self.tr("Contours"))
         self.tabs.addTab(self._create_hydrology_tab(), self.tr("Hydrology"))
-        self.tabs.addTab(self._create_cartography_tab(), self.tr("Layout"))
+        self.cartography_tab_index = self.tabs.addTab(self._create_cartography_tab(), self.tr("Layout"))
         self.tabs.addTab(self._create_settings_tab(), self.tr("Settings"))
         self.report_tab_index = self.tabs.addTab(self._create_report_tab(), self.tr("Inspect"))
         self._update_index_preview()
@@ -194,16 +199,32 @@ class TerrainStudioDock(QDockWidget):
         results_bar.addWidget(self.docs_button)
         outer.addLayout(results_bar)
 
-        self.setWidget(body)
-        self.resize(480, 810)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        # Qt6 scoped enum fallback pattern (same as QgsMapLayerProxyModel below)
+        try:
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        except AttributeError:  # Qt 5 unscoped enum
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        try:
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+        except AttributeError:  # Qt 5 fallback
+            scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(body)
+
+        self.setWidget(scroll)
+        self.setMinimumWidth(400)
+        self.resize(460, 680)
 
     def _create_products_tab(self):
         tab = QWidget()
-        layout = QVBoxLayout(tab)
+        layout = QGridLayout(tab)
         self.products = {}
         definitions = (
             ("CREATE_COLOR_RELIEF", self.tr("Elevation color relief"), True),
-            ("CREATE_HILLSHADE", self.tr("Standard single-light hillshade"), False),
+            ("CREATE_HILLSHADE", self.tr("Hillshade (single light)"), False),
             ("CREATE_MULTI_HILLSHADE", self.tr("Multidirectional hillshade"), True),
             ("CREATE_SLOPE", self.tr("Slope (degrees)"), True),
             ("CREATE_ASPECT", self.tr("Aspect (orientation)"), True),
@@ -211,19 +232,33 @@ class TerrainStudioDock(QDockWidget):
             ("CREATE_TPI", self.tr("Topographic Position Index (TPI)"), True),
             ("CREATE_ROUGHNESS", self.tr("Roughness"), True),
             ("CREATE_SPOT_ELEVATIONS", self.tr("Spot elevation peaks (markers)"), True),
-            ("CREATE_SUITABILITY", self.tr("Slope construction suitability (TCVN)"), True),
-            ("CREATE_LANDSLIDE", self.tr("Landslide hazard & RUSLE LS-factor"), True),
+            ("CREATE_SUITABILITY", self.tr("Construction suitability (TCVN)"), True),
+            ("CREATE_LANDSLIDE", self.tr("Landslide hazard & RUSLE LS"), True),
             ("CREATE_3D_VIEWER", self.tr("Interactive 3D Web Terrain Viewer (HTML)"), True),
             ("CREATE_INTELLIGENCE_REPORT", self.tr("Topographic Intelligence Report (HTML)"), True),
             ("CREATE_PROFILE_CURVATURE", self.tr("Profile curvature (flow acceleration)"), False),
             ("CREATE_PLANFORM_CURVATURE", self.tr("Planform curvature (flow convergence)"), False),
         )
-        for key, label, checked in definitions:
-            checkbox = QCheckBox(label)
+        # Two-column compact grid: halves the Products tab height and keeps
+        # the whole dock short enough that the Run button rarely needs scrolling.
+        # QCheckBox cannot wrap text, so each item pairs a bare checkbox with a
+        # word-wrapping QLabel — labels stay readable at any dock width.
+        for index, (key, label, checked) in enumerate(definitions):
+            item = QWidget()
+            item_row = QHBoxLayout(item)
+            item_row.setContentsMargins(0, 0, 0, 0)
+            item_row.setSpacing(4)
+            checkbox = QCheckBox()
             checkbox.setChecked(checked)
+            item_label = QLabel(label)
+            item_label.setWordWrap(True)
+            item_row.addWidget(checkbox)
+            item_row.addWidget(item_label, 1)
             self.products[key] = checkbox
-            layout.addWidget(checkbox)
-        layout.addStretch(1)
+            layout.addWidget(item, index // 2, index % 2)
+        layout.setColumnStretch(1, 1)
+        last_row = (len(definitions) - 1) // 2
+        layout.setRowStretch(last_row, 1)
         return tab
 
     def _create_contour_tab(self):
@@ -291,7 +326,9 @@ class TerrainStudioDock(QDockWidget):
             self.cartography_combo.addItem(preset["label"], key)
         self.cartography_description = QLabel()
         self.cartography_description.setWordWrap(True)
-        self.font_combo = QFontComboBox()
+        # Plain combo populated lazily on first Layout-tab visit: scanning the
+        # system font database at dock startup was a noticeable UI freeze.
+        self.font_combo = QComboBox()
         self.layout_name_edit = QLineEdit("Terrain Map")
         self.map_title_edit = QLineEdit("TOPOGRAPHIC TERRAIN MAP")
         self.map_subtitle_edit = QLineEdit("DEM-derived relief, contours and drainage")
@@ -413,6 +450,7 @@ class TerrainStudioDock(QDockWidget):
         self.docs_button.clicked.connect(self._open_online_docs)
         self.extent_combo.currentIndexChanged.connect(self._on_extent_mode_changed)
         self.extent_layer_combo.layerChanged.connect(self._on_extent_mode_changed)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         self._update_hydrology_controls()
         self._update_layout_controls()
         self._on_extent_mode_changed()
@@ -572,10 +610,22 @@ class TerrainStudioDock(QDockWidget):
         preset_key = self.cartography_combo.currentData() or "usgs_classic"
         preset = CARTOGRAPHY_PRESETS[preset_key]
         self.cartography_description.setText(preset["description"])
-        self.font_combo.setCurrentFont(QFont(preset["font"]))
+        if self.font_combo.count():
+            self.font_combo.setCurrentText(preset["font"])
         palette_index = self.palette_combo.findData(preset["palette"])
         if palette_index >= 0:
             self.palette_combo.setCurrentIndex(palette_index)
+
+    def _on_tab_changed(self, index):
+        if index == self.cartography_tab_index and not self._fonts_populated:
+            self._populate_fonts()
+
+    def _populate_fonts(self):
+        """Scan system fonts once, only when the Layout tab is first opened."""
+        self._fonts_populated = True
+        self.font_combo.clear()
+        self.font_combo.addItems(QFontDatabase().families())
+        self._on_cartography_preset_changed()
 
     def _browse_dem(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -682,7 +732,7 @@ class TerrainStudioDock(QDockWidget):
     def _cartography_config(self):
         return {
             "preset": self.cartography_combo.currentData() or "usgs_classic",
-            "font_family": self.font_combo.currentFont().family(),
+            "font_family": self.font_combo.currentText() or "Sans Serif",
             "create_layout": self.create_layout_check.isChecked(),
             "layout_name": self.layout_name_edit.text().strip(),
             "title": self.map_title_edit.text().strip(),
