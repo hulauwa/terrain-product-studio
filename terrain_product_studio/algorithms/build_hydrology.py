@@ -28,6 +28,14 @@ from ..core.math_utils import sanitize_prefix, unique_path
 from ..core.native_hydrology import calculate_complete_hydrology
 
 
+def _number_type_double():
+    """Return QgsProcessingParameterNumber Double type enum (Qt5 & Qt6 safe)."""
+    try:
+        return QgsProcessingParameterNumber.Type.Double
+    except AttributeError:
+        return QgsProcessingParameterNumber.Double
+
+
 class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
     INPUT = "INPUT"
     BAND = "BAND"
@@ -36,6 +44,7 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
     Z_UNIT = "Z_UNIT"
     STREAM_THRESHOLD_HA = "STREAM_THRESHOLD_HA"
     CREATE_BASINS = "CREATE_BASINS"
+    CREATE_TWI = "CREATE_TWI"
 
     FILLED_DEM = "FILLED_DEM"
     FLOW_DIRECTION = "FLOW_DIRECTION"
@@ -43,6 +52,7 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
     STREAM_RASTER = "STREAM_RASTER"
     STREAMS = "STREAMS"
     BASINS = "BASINS"
+    TWI = "TWI"
     HYDROLOGY_REPORT = "HYDROLOGY_REPORT"
 
     @staticmethod
@@ -64,10 +74,9 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
     def shortHelpString(self):
         return self.tr(
             "Conditions a projected DEM using priority-flood, calculates deterministic D8 flow, "
-            "and creates filled DEM, direction, accumulation, basin and potential stream layers. "
-            "The stream network is inferred from topography and is not surveyed hydrography. "
-            "For stability this is a separate algorithm; the dock chains it automatically after "
-            "the terrain package. Native hydrology is limited to 4 million cells per run."
+            "and creates filled DEM, direction, accumulation, basin, TWI, and continuous Strahler "
+            "stream network polylines. For stability this is a separate algorithm; the dock chains it "
+            "automatically after the terrain package."
         )
 
     def createInstance(self):
@@ -101,7 +110,7 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.STREAM_THRESHOLD_HA,
                 self.tr("Minimum contributing area for streams (hectares)"),
-                type=QgsProcessingParameterNumber.Double,
+                type=_number_type_double(),
                 minValue=0.0001,
                 maxValue=1000000000.0,
                 defaultValue=25.0,
@@ -110,6 +119,11 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterBoolean(
                 self.CREATE_BASINS, self.tr("Create watershed basin raster"), defaultValue=True
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.CREATE_TWI, self.tr("Create Topographic Wetness Index (TWI)"), defaultValue=True
             )
         )
 
@@ -128,15 +142,21 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
         )
         self.addOutput(QgsProcessingOutputRasterLayer(self.BASINS, self.tr("Watershed basins")))
         self.addOutput(
+            QgsProcessingOutputRasterLayer(self.TWI, self.tr("Topographic Wetness Index (TWI)"))
+        )
+        self.addOutput(
             QgsProcessingOutputFile(self.HYDROLOGY_REPORT, self.tr("Hydrology report"))
         )
 
     @staticmethod
     def _horizontal_meters_per_unit(crs):
         try:
-            factor = QgsUnitTypes.fromUnitToUnitFactor(
-                crs.mapUnits(), QgsUnitTypes.DistanceMeters
-            )
+            # Qt6/QGIS4 scoped enum: QgsUnitTypes.DistanceUnit.DistanceMeters
+            try:
+                dist_meters = QgsUnitTypes.DistanceUnit.DistanceMeters
+            except AttributeError:
+                dist_meters = QgsUnitTypes.DistanceMeters
+            factor = QgsUnitTypes.fromUnitToUnitFactor(crs.mapUnits(), dist_meters)
             if math.isfinite(factor) and factor > 0:
                 return float(factor)
         except (AttributeError, TypeError, ValueError):
@@ -155,6 +175,7 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
         z_unit = self.parameterAsEnum(parameters, self.Z_UNIT, context)
         threshold_ha = self.parameterAsDouble(parameters, self.STREAM_THRESHOLD_HA, context)
         create_basins = self.parameterAsBool(parameters, self.CREATE_BASINS, context)
+        create_twi = self.parameterAsBool(parameters, self.CREATE_TWI, context)
         if source is None or not source.isValid():
             raise QgsProcessingException(self.tr("Input DEM is missing or invalid."))
         if not source.crs().isValid() or source.crs().isGeographic():
@@ -187,13 +208,16 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
             self.STREAM_RASTER: self._output_path(
                 folder, prefix, "potential_streams", "tif"
             ),
-            self.STREAMS: self._output_path(folder, prefix, "potential_streams", "geojson"),
+            self.STREAMS: self._output_path(folder, prefix, "potential_streams", "gpkg"),
         }
         if create_basins:
             paths[self.BASINS] = self._output_path(folder, prefix, "watershed_basins", "tif")
+        if create_twi:
+            paths[self.TWI] = self._output_path(folder, prefix, "twi", "tif")
+
         feedback.pushInfo(
             self.tr(
-                f"Priority-flood and D8 hydrology; {threshold_ha:g} ha = "
+                f"Priority-flood and Strahler D8 hydrology; {threshold_ha:g} ha = "
                 f"{threshold_cells} contributing cells."
             )
         )
@@ -210,6 +234,7 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
                 pixel_area_m2=pixel_area_m2,
                 horizontal_meters_per_unit=horizontal_m,
                 vertical_meters_per_unit=vertical_m,
+                twi_path=paths.get(self.TWI),
                 basin_path=paths.get(self.BASINS),
             )
         except RuntimeError as error:

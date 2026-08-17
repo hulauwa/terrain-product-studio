@@ -210,5 +210,9 @@ OUTPUT_LABELS = {
     "STREAMS": "Potential drainage network",
     "RIDGES": "Potential ridgelines",
     "BASINS": "Watershed basins",
+    "TWI": "Topographic Wetness Index (TWI)",
+    "SUITABILITY": "Slope construction suitability",
+    "LANDSLIDE_HAZARD": "Landslide hazard risk",
+    "LS_FACTOR": "RUSLE LS slope-length factor",
 }
 

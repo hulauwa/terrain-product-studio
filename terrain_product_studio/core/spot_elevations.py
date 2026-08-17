@@ -40,22 +40,38 @@ def extract_spot_elevations(
 
     height, width = elevation.shape
 
-    # Simple, fast local maxima filter using sliding neighborhood
-    from scipy.ndimage import maximum_filter
-
     w = max(3, int(window_size))
-    local_max = maximum_filter(elevation, size=w, mode="nearest")
+    try:
+        from scipy.ndimage import maximum_filter, uniform_filter
 
-    # Peaks are cells equal to local max, valid, and significantly above surrounding terrain
-    is_peak = valid & (elevation == local_max)
-
-    # Filtering step: ensure peak has minimum prominence relative to border of its window
-    if min_prominence_m > 0:
-        # Create blurred background to estimate local mean
-        from scipy.ndimage import uniform_filter
-
-        local_mean = uniform_filter(elevation, size=w * 2, mode="nearest")
-        is_peak &= (elevation - local_mean) >= min_prominence_m
+        local_max = maximum_filter(elevation, size=w, mode="nearest")
+        is_peak = valid & (elevation == local_max)
+        if min_prominence_m > 0:
+            local_mean = uniform_filter(elevation, size=w * 2, mode="nearest")
+            is_peak &= (elevation - local_mean) >= min_prominence_m
+    except ImportError:
+        pad = w // 2
+        padded = np.pad(elevation, pad, mode="edge")
+        local_max = np.copy(elevation)
+        for dy in range(-pad, pad + 1):
+            for dx in range(-pad, pad + 1):
+                if dy == 0 and dx == 0:
+                    continue
+                neighbor = padded[pad + dy : pad + dy + height, pad + dx : pad + dx + width]
+                local_max = np.maximum(local_max, neighbor)
+        is_peak = valid & (elevation >= local_max)
+        if min_prominence_m > 0:
+            pad2 = w
+            padded2 = np.pad(elevation, pad2, mode="edge")
+            accum = np.zeros_like(elevation, dtype=np.float64)
+            count = 0
+            step = max(1, w // 3)
+            for dy in range(-pad2, pad2 + 1, step):
+                for dx in range(-pad2, pad2 + 1, step):
+                    accum += padded2[pad2 + dy : pad2 + dy + height, pad2 + dx : pad2 + dx + width]
+                    count += 1
+            local_mean = (accum / max(1, count)).astype(np.float32)
+            is_peak &= (elevation - local_mean) >= min_prominence_m
 
     peak_rows, peak_cols = np.nonzero(is_peak)
 

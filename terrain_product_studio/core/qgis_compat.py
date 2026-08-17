@@ -11,4 +11,9 @@ def all_raster_statistics_flag():
     try:
         return Qgis.RasterBandStatistic.All
     except AttributeError:
+        pass
+    # Qt6 scoped enum: QgsRasterBandStats.Stats.All
+    try:
+        return QgsRasterBandStats.Stats.All
+    except AttributeError:
         return QgsRasterBandStats.All

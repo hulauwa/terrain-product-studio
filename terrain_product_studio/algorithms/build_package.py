@@ -21,6 +21,7 @@ from qgis.core import (
     QgsProcessingParameterBand,
     QgsProcessingParameterBoolean,
     QgsProcessingParameterEnum,
+    QgsProcessingParameterExtent,
     QgsProcessingParameterFolderDestination,
     QgsProcessingParameterNumber,
     QgsProcessingParameterRasterLayer,
@@ -30,11 +31,30 @@ from qgis.core import (
 )
 
 from ..core.dem_info import inspect_dem_layer
+from ..core.intelligence_report import generate_intelligence_report
 from ..core.math_utils import interpolate_color_stops, sanitize_prefix, unique_path
 from ..core.presets import TERRAIN_PALETTES
 from ..core.qgis_compat import all_raster_statistics_flag
 from ..core.spot_elevations import extract_spot_elevations
+from ..core.thematic_terrain import calculate_landslide_hazard, calculate_slope_suitability
+from ..core.web_3d_viewer import generate_3d_web_viewer
 
+
+
+def _number_type_double():
+    """Return QgsProcessingParameterNumber Double type enum (Qt5 & Qt6 safe)."""
+    try:
+        return QgsProcessingParameterNumber.Type.Double
+    except AttributeError:
+        return QgsProcessingParameterNumber.Double
+
+
+def _number_type_integer():
+    """Return QgsProcessingParameterNumber Integer type enum (Qt5 & Qt6 safe)."""
+    try:
+        return QgsProcessingParameterNumber.Type.Integer
+    except AttributeError:
+        return QgsProcessingParameterNumber.Integer
 
 
 class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
@@ -62,6 +82,10 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     CREATE_PLANFORM_CURVATURE = "CREATE_PLANFORM_CURVATURE"
     CREATE_CONTOURS = "CREATE_CONTOURS"
     CREATE_SPOT_ELEVATIONS = "CREATE_SPOT_ELEVATIONS"
+    CREATE_SUITABILITY = "CREATE_SUITABILITY"
+    CREATE_LANDSLIDE = "CREATE_LANDSLIDE"
+    CREATE_3D_VIEWER = "CREATE_3D_VIEWER"
+    CREATE_INTELLIGENCE_REPORT = "CREATE_INTELLIGENCE_REPORT"
     CONTOUR_INTERVAL = "CONTOUR_INTERVAL"
     INDEX_MULTIPLIER = "INDEX_MULTIPLIER"
 
@@ -78,6 +102,11 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     PLANFORM_CURVATURE = "PLANFORM_CURVATURE"
     CONTOURS = "CONTOURS"
     SPOT_ELEVATIONS = "SPOT_ELEVATIONS"
+    SUITABILITY = "SUITABILITY"
+    LANDSLIDE_HAZARD = "LANDSLIDE_HAZARD"
+    LS_FACTOR = "LS_FACTOR"
+    VIEWER_3D = "VIEWER_3D"
+    INTELLIGENCE_REPORT = "INTELLIGENCE_REPORT"
     REPORT = "REPORT"
 
     _PALETTE_KEYS = tuple(TERRAIN_PALETTES.keys())
@@ -127,6 +156,13 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterString(self.PREFIX, self.tr("Output filename prefix"), "terrain")
         )
         self.addParameter(
+            QgsProcessingParameterExtent(
+                "EXTENT",
+                self.tr("Processing extent (clip boundary, optional)"),
+                optional=True,
+            )
+        )
+        self.addParameter(
             QgsProcessingParameterEnum(
                 self.Z_UNIT,
                 self.tr("Elevation unit"),
@@ -162,7 +198,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.VERTICAL_EXAGGERATION,
                 self.tr("Hillshade vertical exaggeration"),
-                type=QgsProcessingParameterNumber.Double,
+                type=_number_type_double(),
                 minValue=0.01,
                 maxValue=100.0,
                 defaultValue=1.0,
@@ -173,7 +209,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.AZIMUTH,
                 self.tr("Hillshade azimuth"),
-                type=QgsProcessingParameterNumber.Double,
+                type=_number_type_double(),
                 minValue=0.0,
                 maxValue=360.0,
                 defaultValue=315.0,
@@ -183,7 +219,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.ALTITUDE,
                 self.tr("Hillshade light altitude"),
-                type=QgsProcessingParameterNumber.Double,
+                type=_number_type_double(),
                 minValue=0.0,
                 maxValue=90.0,
                 defaultValue=45.0,
@@ -210,6 +246,10 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             (self.CREATE_PLANFORM_CURVATURE, self.tr("Planform curvature"), False),
             (self.CREATE_CONTOURS, self.tr("Contours"), True),
             (self.CREATE_SPOT_ELEVATIONS, self.tr("Spot elevation peaks"), True),
+            (self.CREATE_SUITABILITY, self.tr("Slope construction suitability"), True),
+            (self.CREATE_LANDSLIDE, self.tr("Landslide hazard & RUSLE LS factor"), True),
+            (self.CREATE_3D_VIEWER, self.tr("Interactive 3D Web Terrain Viewer (HTML)"), True),
+            (self.CREATE_INTELLIGENCE_REPORT, self.tr("Topographic Intelligence Report (HTML)"), True),
         )
         for name, label, default in products:
             self.addParameter(QgsProcessingParameterBoolean(name, label, defaultValue=default))
@@ -218,7 +258,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.CONTOUR_INTERVAL,
                 self.tr("Minor contour interval (elevation units)"),
-                type=QgsProcessingParameterNumber.Double,
+                type=_number_type_double(),
                 minValue=0.000001,
                 defaultValue=10.0,
             )
@@ -227,7 +267,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.INDEX_MULTIPLIER,
                 self.tr("Index contour multiplier"),
-                type=QgsProcessingParameterNumber.Integer,
+                type=_number_type_integer(),
                 minValue=1,
                 maxValue=20,
                 defaultValue=5,
@@ -249,6 +289,11 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         self.addOutput(QgsProcessingOutputRasterLayer(self.PLANFORM_CURVATURE, self.tr("Planform curvature")))
         self.addOutput(QgsProcessingOutputVectorLayer(self.CONTOURS, self.tr("Contours")))
         self.addOutput(QgsProcessingOutputVectorLayer(self.SPOT_ELEVATIONS, self.tr("Spot elevation peaks")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.SUITABILITY, self.tr("Slope construction suitability")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.LANDSLIDE_HAZARD, self.tr("Landslide hazard risk")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.LS_FACTOR, self.tr("RUSLE LS factor")))
+        self.addOutput(QgsProcessingOutputFile(self.VIEWER_3D, self.tr("Interactive 3D Web Viewer")))
+        self.addOutput(QgsProcessingOutputFile(self.INTELLIGENCE_REPORT, self.tr("Topographic Intelligence Report")))
         self.addOutput(QgsProcessingOutputFile(self.REPORT, self.tr("Processing report")))
 
 
@@ -296,7 +341,12 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     @staticmethod
     def _horizontal_meters_per_unit(crs):
         try:
-            factor = QgsUnitTypes.fromUnitToUnitFactor(crs.mapUnits(), QgsUnitTypes.DistanceMeters)
+            # Qt6/QGIS4 scoped enum: QgsUnitTypes.DistanceUnit.DistanceMeters
+            try:
+                dist_meters = QgsUnitTypes.DistanceUnit.DistanceMeters
+            except AttributeError:
+                dist_meters = QgsUnitTypes.DistanceMeters
+            factor = QgsUnitTypes.fromUnitToUnitFactor(crs.mapUnits(), dist_meters)
             if math.isfinite(factor) and factor > 0:
                 return float(factor)
         except (AttributeError, TypeError, ValueError):
@@ -356,6 +406,10 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             self.PLANFORM_CURVATURE: self.parameterAsBool(parameters, self.CREATE_PLANFORM_CURVATURE, context),
             self.CONTOURS: self.parameterAsBool(parameters, self.CREATE_CONTOURS, context),
             self.SPOT_ELEVATIONS: self.parameterAsBool(parameters, self.CREATE_SPOT_ELEVATIONS, context),
+            self.SUITABILITY: self.parameterAsBool(parameters, self.CREATE_SUITABILITY, context),
+            self.LANDSLIDE_HAZARD: self.parameterAsBool(parameters, self.CREATE_LANDSLIDE, context),
+            self.VIEWER_3D: self.parameterAsBool(parameters, self.CREATE_3D_VIEWER, context),
+            self.INTELLIGENCE_REPORT: self.parameterAsBool(parameters, self.CREATE_INTELLIGENCE_REPORT, context),
         }
         if not any(selected.values()):
             raise QgsProcessingException(self.tr("Select at least one terrain product."))
@@ -417,11 +471,35 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         if multi.isCanceled():
             return outputs
 
+        # Optional user boundary extent clipping
+        extent_param = self.parameterAsExtent(parameters, "EXTENT", context)
+        if extent_param is not None and not extent_param.isNull() and not extent_param.isEmpty():
+            clipped_path = self._output_path(folder, prefix, "clipped_roi", "tif")
+            multi.pushInfo(self.tr(f"Clipping DEM to selected ROI extent…"))
+            try:
+                clip_res = self._run_child(
+                    "gdal:cliprasterbyextent",
+                    {
+                        "INPUT": working_dem,
+                        "PROJWIN": extent_param,
+                        "NODATA": None,
+                        "OPTIONS": creation_options,
+                        "DATA_TYPE": 0,
+                        "OUTPUT": clipped_path,
+                    },
+                    context=context,
+                    feedback=multi,
+                )
+                if os.path.exists(clipped_path):
+                    working_dem = clipped_path
+            except Exception as e:
+                warnings.append(f"ROI Extent clip notice: {e}")
+
         working_layer = source
         if isinstance(working_dem, str):
             working_layer = QgsRasterLayer(working_dem, f"{prefix}_working_dem")
             if not working_layer.isValid():
-                raise QgsProcessingException(self.tr("The reprojected working DEM could not be opened."))
+                raise QgsProcessingException(self.tr("The working DEM could not be opened."))
 
         stats = working_layer.dataProvider().bandStatistics(
             band,
@@ -576,6 +654,84 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                         outputs[self.SPOT_ELEVATIONS] = spot_path
                 except Exception as err:
                     warnings.append(f"Spot elevation extraction notice: {err}")
+
+        # Slope Suitability for Construction
+        if selected[self.SUITABILITY] and outputs.get(self.SLOPE):
+            if not multi.isCanceled():
+                multi.setCurrentStep(current_step)
+                current_step += 1
+                suit_path = self._output_path(folder, prefix, "slope_suitability", "tif")
+                multi.pushInfo(self.tr("Evaluating urban construction slope suitability…"))
+                try:
+                    calculate_slope_suitability(outputs[self.SLOPE], suit_path)
+                    if os.path.exists(suit_path):
+                        outputs[self.SUITABILITY] = suit_path
+                except Exception as err:
+                    warnings.append(f"Suitability notice: {err}")
+
+        # Landslide Hazard & RUSLE LS Factor
+        if selected[self.LANDSLIDE_HAZARD] and outputs.get(self.SLOPE):
+            if not multi.isCanceled():
+                multi.setCurrentStep(current_step)
+                current_step += 1
+                hazard_path = self._output_path(folder, prefix, "landslide_hazard", "tif")
+                ls_path = self._output_path(folder, prefix, "rusle_ls_factor", "tif")
+                multi.pushInfo(self.tr("Calculating landslide hazard and RUSLE LS factor…"))
+                try:
+                    calculate_landslide_hazard(outputs[self.SLOPE], outputs[self.SLOPE], hazard_path, ls_path)
+                    if os.path.exists(hazard_path):
+                        outputs[self.LANDSLIDE_HAZARD] = hazard_path
+                    if os.path.exists(ls_path):
+                        outputs[self.LS_FACTOR] = ls_path
+                except Exception as err:
+                    warnings.append(f"Landslide hazard notice: {err}")
+
+        working_dem_path = working_dem if isinstance(working_dem, str) else source.source().split("|")[0]
+
+        # 3D Interactive Web Viewer
+        if selected[self.VIEWER_3D]:
+            if not multi.isCanceled():
+                multi.setCurrentStep(current_step)
+                current_step += 1
+                v3d_path = self._output_path(folder, prefix, "interactive_3d_terrain", "html")
+                multi.pushInfo(self.tr("Generating Interactive 3D Web Terrain Viewer…"))
+                try:
+                    generate_3d_web_viewer(
+                        dem_path=working_dem_path,
+                        output_html_path=v3d_path,
+                        title=f"{prefix.title()} 3D Interactive WebGIS Studio",
+                        contour_vector_path=outputs.get(self.CONTOURS),
+                        spot_peaks_path=outputs.get(self.SPOT_ELEVATIONS),
+                        slope_path=outputs.get(self.SLOPE),
+                        suitability_path=outputs.get(self.SUITABILITY),
+                        hazard_path=outputs.get(self.LANDSLIDE_HAZARD),
+                    )
+                    if os.path.exists(v3d_path):
+                        outputs[self.VIEWER_3D] = v3d_path
+                except Exception as err:
+                    warnings.append(f"3D viewer notice: {err}")
+
+        # Topographic Intelligence Summary Report
+        if selected[self.INTELLIGENCE_REPORT]:
+            if not multi.isCanceled():
+                multi.setCurrentStep(current_step)
+                current_step += 1
+                intel_path = self._output_path(folder, prefix, "topographic_intelligence_report", "html")
+                multi.pushInfo(self.tr("Compiling Topographic Intelligence Summary Report…"))
+                try:
+                    generate_intelligence_report(
+                        dem_path=working_dem_path,
+                        output_html_path=intel_path,
+                        title=f"{prefix.title()} Topographic Intelligence Report",
+                        slope_path=outputs.get(self.SLOPE),
+                        aspect_path=outputs.get(self.ASPECT),
+                        suitability_path=outputs.get(self.SUITABILITY),
+                        hazard_path=outputs.get(self.LANDSLIDE_HAZARD),
+                    )
+                    if os.path.exists(intel_path):
+                        outputs[self.INTELLIGENCE_REPORT] = intel_path
+                except Exception as err:
+                    warnings.append(f"Intelligence report notice: {err}")
 
         multi.setCurrentStep(min(current_step, step_count - 1))
         report_path = self._output_path(folder, prefix, "report", "json")

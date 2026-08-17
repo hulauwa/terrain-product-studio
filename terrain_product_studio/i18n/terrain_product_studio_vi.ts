@@ -128,6 +128,30 @@
         <translation>Điểm đỉnh cao độ (markers)</translation>
     </message>
     <message>
+        <source>Slope construction suitability (TCVN)</source>
+        <translation>Đánh giá độ dốc xây dựng công trình (TCVN)</translation>
+    </message>
+    <message>
+        <source>Landslide hazard &amp; RUSLE LS-factor</source>
+        <translation>Nguy cơ sạt lở &amp; Hệ số xói mòn RUSLE LS</translation>
+    </message>
+    <message>
+        <source>Interactive 3D Web Terrain Viewer (HTML)</source>
+        <translation>Trình xem địa hình 3D tương tác trên Web (HTML 3D)</translation>
+    </message>
+    <message>
+        <source>Topographic Intelligence Report (HTML)</source>
+        <translation>Báo cáo phân tích địa hình thông minh (HTML)</translation>
+    </message>
+    <message>
+        <source>Extract continuous Strahler river network</source>
+        <translation>Trích xuất mạng sông suối phân cấp Strahler</translation>
+    </message>
+    <message>
+        <source>Topographic Wetness Index (TWI)</source>
+        <translation>Chỉ số ẩm ướt địa hình (TWI)</translation>
+    </message>
+    <message>
         <source>Profile curvature (flow acceleration)</source>
         <translation>Độ cong mặt cắt (Profile curvature)</translation>
     </message>

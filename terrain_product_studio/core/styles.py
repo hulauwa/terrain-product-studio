@@ -35,7 +35,14 @@ def _stats(layer):
 
 def _pseudocolor(layer, items, discrete=False):
     ramp = QgsColorRampShader()
-    ramp.setColorRampType(QgsColorRampShader.Discrete if discrete else QgsColorRampShader.Interpolated)
+    # Qt6/QGIS4 scoped enum: QgsColorRampShader.Type.Discrete / .Interpolated
+    try:
+        ramp_discrete = QgsColorRampShader.Type.Discrete
+        ramp_interp = QgsColorRampShader.Type.Interpolated
+    except AttributeError:
+        ramp_discrete = QgsColorRampShader.Discrete
+        ramp_interp = QgsColorRampShader.Interpolated
+    ramp.setColorRampType(ramp_discrete if discrete else ramp_interp)
     ramp.setColorRampItemList(
         [
             QgsColorRampShader.ColorRampItem(float(value), QColor(color), str(label))
@@ -54,14 +61,19 @@ def apply_hillshade_style(layer, opacity=0.36):
     enhancement = QgsContrastEnhancement(layer.dataProvider().dataType(1))
     enhancement.setMinimumValue(1.0)
     enhancement.setMaximumValue(254.0)
-    enhancement.setContrastEnhancementAlgorithm(QgsContrastEnhancement.StretchToMinimumMaximum)
+    # Qt6/QGIS4 scoped enum: QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum
+    try:
+        stretch_algo = QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum
+    except AttributeError:
+        stretch_algo = QgsContrastEnhancement.StretchToMinimumMaximum
+    enhancement.setContrastEnhancementAlgorithm(stretch_algo)
     renderer.setContrastEnhancement(enhancement)
     layer.setRenderer(renderer)
     layer.setOpacity(float(opacity))
     try:
-        multiply_mode = QPainter.CompositionMode_Multiply
-    except AttributeError:  # Qt 6 scoped enum used by QGIS 4
         multiply_mode = QPainter.CompositionMode.CompositionMode_Multiply
+    except AttributeError:  # Qt 5 unscoped enum
+        multiply_mode = QPainter.CompositionMode_Multiply
     layer.setBlendMode(multiply_mode)
     layer.triggerRepaint()
 
@@ -184,7 +196,11 @@ def apply_contour_style(
 
     labels = QgsPalLayerSettings()
     labels.enabled = True
-    labels.placement = QgsPalLayerSettings.Line
+    # Qt6/QGIS4 scoped enum: QgsPalLayerSettings.Placement.Line
+    try:
+        labels.placement = QgsPalLayerSettings.Placement.Line
+    except AttributeError:
+        labels.placement = QgsPalLayerSettings.Line
     labels.isExpression = True
     decimals = 0 if abs(index - round(index)) < 1e-9 else 2
     labels.fieldName = (
@@ -192,7 +208,11 @@ def apply_contour_style(
         f"format_number(\"ELEV\", {decimals}) || ' {z_unit}' ELSE NULL END"
     )
     labels.repeatDistance = 110.0
-    labels.repeatDistanceUnit = QgsUnitTypes.RenderMillimeters
+    # Qt6/QGIS4 scoped enum: QgsUnitTypes.RenderUnit.RenderMillimeters
+    try:
+        labels.repeatDistanceUnit = QgsUnitTypes.RenderUnit.RenderMillimeters
+    except AttributeError:
+        labels.repeatDistanceUnit = QgsUnitTypes.RenderMillimeters
     labels.setFormat(text_format)
     layer.setLabeling(QgsVectorLayerSimpleLabeling(labels))
     layer.setLabelsEnabled(True)
@@ -233,7 +253,11 @@ def apply_spot_elevation_style(layer, preset_key="usgs_classic", font_family=Non
     
     labels = QgsPalLayerSettings()
     labels.enabled = True
-    labels.placement = QgsPalLayerSettings.OrderedPositionsAroundPoint
+    # Qt6/QGIS4 scoped enum: QgsPalLayerSettings.Placement.OrderedPositionsAroundPoint
+    try:
+        labels.placement = QgsPalLayerSettings.Placement.OrderedPositionsAroundPoint
+    except AttributeError:
+        labels.placement = QgsPalLayerSettings.OrderedPositionsAroundPoint
     labels.fieldName = "LABEL"
     labels.setFormat(text_format)
     layer.setLabeling(QgsVectorLayerSimpleLabeling(labels))
@@ -276,18 +300,46 @@ def apply_ridge_style(layer, preset_key="usgs_classic"):
 
 
 def apply_stream_style(layer, preset_key="usgs_classic"):
-    """Apply a restrained hydrography line style to extracted drainage."""
+    """Apply tiered Strahler hydrography line style with graduated width and colors."""
+    from qgis.core import (
+        QgsRuleBasedRenderer,
+        QgsLineSymbol,
+    )
 
     preset = _cartography_preset(preset_key)
-    symbol = QgsLineSymbol.createSimple(
-        {
-            "color": preset["water"],
-            "width": "0.46",
-            "capstyle": "round",
-            "joinstyle": "round",
-        }
-    )
-    layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+    base_water = preset.get("water", "#0070c0")
+
+    symbol = QgsLineSymbol.createSimple({"color": base_water, "width": "0.35"})
+    root_rule = QgsRuleBasedRenderer.Rule(symbol)
+    root_rule.children().clear()
+
+    # Rule 1: Order 1 (Headwater streams)
+    s1 = QgsLineSymbol.createSimple({"color": "#6baed6", "width": "0.28", "capstyle": "round", "joinstyle": "round"})
+    r1 = QgsRuleBasedRenderer.Rule(s1, 0, 0, '"ORDER" <= 1', "Order 1 - Headwater Stream")
+    root_rule.appendChild(r1)
+
+    # Rule 2: Order 2 (Secondary Tributaries)
+    s2 = QgsLineSymbol.createSimple({"color": "#3182bd", "width": "0.52", "capstyle": "round", "joinstyle": "round"})
+    r2 = QgsRuleBasedRenderer.Rule(s2, 0, 0, '"ORDER" = 2', "Order 2 - Secondary Tributary")
+    root_rule.appendChild(r2)
+
+    # Rule 3: Order 3 (Sub-Rivers)
+    s3 = QgsLineSymbol.createSimple({"color": "#08519c", "width": "0.85", "capstyle": "round", "joinstyle": "round"})
+    r3 = QgsRuleBasedRenderer.Rule(s3, 0, 0, '"ORDER" = 3', "Order 3 - Sub-River Channel")
+    root_rule.appendChild(r3)
+
+    # Rule 4: Order 4+ (Main Channels)
+    s4 = QgsLineSymbol.createSimple({"color": "#08306b", "width": "1.30", "capstyle": "round", "joinstyle": "round"})
+    r4 = QgsRuleBasedRenderer.Rule(s4, 0, 0, '"ORDER" >= 4', "Order 4+ - Major River Channel")
+    root_rule.appendChild(r4)
+
+    # Fallback rule
+    s_fallback = QgsLineSymbol.createSimple({"color": "#3182bd", "width": "0.45"})
+    r_fallback = QgsRuleBasedRenderer.Rule(s_fallback, 0, 0, "ELSE", "Other Stream Channels")
+    root_rule.appendChild(r_fallback)
+
+    renderer = QgsRuleBasedRenderer(root_rule)
+    layer.setRenderer(renderer)
     layer.triggerRepaint()
 
 
@@ -322,4 +374,50 @@ def apply_basin_style(layer, preset_key="usgs_classic"):
         ),
     )
     layer.setOpacity(0.55)
+
+
+def apply_twi_style(layer):
+    """Apply Topographic Wetness Index (TWI) moisture saturation colormap."""
+    minimum, maximum = _stats(layer)
+    min_val = max(0.0, minimum)
+    max_val = min(30.0, max(min_val + 2.0, maximum))
+    span = max_val - min_val
+    _pseudocolor(
+        layer,
+        (
+            (min_val, "#d73027", "Very Dry Ridge (< 4)"),
+            (min_val + span * 0.25, "#fee08b", "Dry Slope (4 - 7)"),
+            (min_val + span * 0.50, "#d9ef8b", "Moderate Moisture (7 - 10)"),
+            (min_val + span * 0.75, "#66bd63", "Moist / Convergent (10 - 14)"),
+            (max_val, "#006837", "Saturated / Valley Floor (> 14)"),
+        ),
+    )
+
+
+def apply_suitability_style(layer):
+    """Apply Urban Construction Suitability 5-tier categorized colormap."""
+    _pseudocolor(
+        layer,
+        (
+            (1.0, "#2ca25f", "Class 1: < 3° (Highly Suitable / Very High)"),
+            (2.0, "#99d8c9", "Class 2: 3°–8° (Suitable / High)"),
+            (3.0, "#fed976", "Class 3: 8°–15° (Moderate / Grading Required)"),
+            (4.0, "#fd8d3c", "Class 4: 15°–25° (Restricted / Steep Slope)"),
+            (5.0, "#e31a1c", "Class 5: > 25° (Unsuitable / Conservation Zone)"),
+        ),
+    )
+
+
+def apply_landslide_style(layer):
+    """Apply Landslide Hazard 4-tier risk colormap."""
+    _pseudocolor(
+        layer,
+        (
+            (1.0, "#2b83ba", "Class 1: Low Hazard / Stable Terrain"),
+            (2.0, "#ffffbf", "Class 2: Moderate Hazard"),
+            (3.0, "#fdae61", "Class 3: High Hazard (Steep Slope)"),
+            (4.0, "#d7191c", "Class 4: Very High Hazard (Critical Risk)"),
+        ),
+    )
+
 

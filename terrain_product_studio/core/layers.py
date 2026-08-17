@@ -14,12 +14,15 @@ from .styles import (
     apply_curvature_style,
     apply_flow_accumulation_style,
     apply_hillshade_style,
+    apply_landslide_style,
     apply_ridge_style,
     apply_ruggedness_style,
     apply_slope_style,
     apply_spot_elevation_style,
     apply_stream_style,
+    apply_suitability_style,
     apply_tpi_style,
+    apply_twi_style,
 )
 
 
@@ -81,6 +84,10 @@ def add_terrain_results(
         "FLOW_DIRECTION": (hydro_group, False),
         "STREAM_RASTER": (hydro_group, False),
         "BASINS": (hydro_group, False),
+        "TWI": (hydro_group, False),
+        "SUITABILITY": (analysis_group, False),
+        "LANDSLIDE_HAZARD": (analysis_group, False),
+        "LS_FACTOR": (analysis_group, False),
         "FILLED_DEM": (quality_group, False),
         "WORKING_DEM": (quality_group, False),
     }
@@ -180,6 +187,12 @@ def add_terrain_results(
         apply_flow_accumulation_style(layers["FLOW_ACCUMULATION"], cartography_preset)
     if "BASINS" in layers:
         apply_basin_style(layers["BASINS"], cartography_preset)
+    if "TWI" in layers:
+        apply_twi_style(layers["TWI"])
+    if "SUITABILITY" in layers:
+        apply_suitability_style(layers["SUITABILITY"])
+    if "LANDSLIDE_HAZARD" in layers:
+        apply_landslide_style(layers["LANDSLIDE_HAZARD"])
 
     analysis_group.setItemVisibilityChecked(False)
     quality_group.setItemVisibilityChecked(False)

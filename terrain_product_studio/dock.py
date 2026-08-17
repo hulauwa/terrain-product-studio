@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 
-from qgis.PyQt.QtCore import QDir, QCoreApplication
-from qgis.PyQt.QtGui import QFont
+from qgis.PyQt.QtCore import QDir, QCoreApplication, QUrl
+from qgis.PyQt.QtGui import QFont, QDesktopServices
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -41,10 +41,12 @@ from qgis.core import (
 from qgis.gui import QgsMapLayerComboBox
 
 from .core.dem_info import format_dem_report, inspect_dem_layer
+from .core.intelligence_report import generate_intelligence_report
 from .core.layers import add_terrain_results
 from .core.layouts import create_terrain_layout
 from .core.math_utils import sanitize_prefix
 from .core.presets import CARTOGRAPHY_PRESETS, TERRAIN_PALETTES
+from .core.web_3d_viewer import generate_3d_web_viewer
 
 
 class TerrainStudioDock(QDockWidget):
@@ -88,7 +90,11 @@ class TerrainStudioDock(QDockWidget):
         input_group = QGroupBox(self.tr("1 · Input Data"))
         input_layout = QGridLayout(input_group)
         self.dem_combo = QgsMapLayerComboBox()
-        self.dem_combo.setFilters(QgsMapLayerProxyModel.RasterLayer)
+        # Qt6/QGIS4 scoped enum: QgsMapLayerProxyModel.Filter.RasterLayer
+        try:
+            self.dem_combo.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
+        except AttributeError:
+            self.dem_combo.setFilters(QgsMapLayerProxyModel.RasterLayer)
         self.browse_dem_button = QPushButton(self.tr("Open DEM…"))
         self.band_spin = QSpinBox()
         self.band_spin.setRange(1, 1)
@@ -101,9 +107,31 @@ class TerrainStudioDock(QDockWidget):
         input_layout.addWidget(self.inspect_button, 1, 2)
         outer.addWidget(input_group)
 
-        output_group = QGroupBox(self.tr("2 · Output"))
+        # Extent / ROI Group
+        extent_group = QGroupBox(self.tr("2 · Processing Extent"))
+        extent_layout = QGridLayout(extent_group)
+        self.extent_combo = QComboBox()
+        self.extent_combo.addItem(self.tr("Full DEM Layer Extent"), "full")
+        self.extent_combo.addItem(self.tr("Current Map Canvas Extent"), "canvas")
+        self.extent_combo.addItem(self.tr("Calculate from Another Layer Extent"), "layer")
+        self.extent_layer_combo = QgsMapLayerComboBox()
+        self.extent_layer_combo.setEnabled(False)
+        self.extent_label = QLabel(self.tr("Extent: Full DEM coverage"))
+        self.extent_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        extent_layout.addWidget(QLabel(self.tr("Mode")), 0, 0)
+        extent_layout.addWidget(self.extent_combo, 0, 1, 1, 2)
+        extent_layout.addWidget(QLabel(self.tr("Boundary Layer")), 1, 0)
+        extent_layout.addWidget(self.extent_layer_combo, 1, 1, 1, 2)
+        extent_layout.addWidget(self.extent_label, 2, 0, 1, 3)
+        outer.addWidget(extent_group)
+
+        output_group = QGroupBox(self.tr("3 · Output"))
         output_layout = QGridLayout(output_group)
-        default_output = QgsSettings().value(self.SETTINGS_OUTPUT, "", type=str)
+        default_temp = os.path.join(os.path.dirname(__file__), "temp")
+        os.makedirs(default_temp, exist_ok=True)
+        default_output = QgsSettings().value(self.SETTINGS_OUTPUT, default_temp, type=str)
+        if not default_output:
+            default_output = default_temp
         self.output_edit = QLineEdit(default_output)
         self.output_button = QPushButton(self.tr("Browse…"))
         self.prefix_edit = QLineEdit("terrain")
@@ -149,8 +177,23 @@ class TerrainStudioDock(QDockWidget):
         actions.addWidget(self.cancel_button)
         outer.addLayout(actions)
 
+        # Quick Results Action Bar
+        results_bar = QHBoxLayout()
+        self.open_3d_button = QPushButton(self.tr("🌐 View 3D Web Map"))
+        self.open_3d_button.setEnabled(True)
+        self.open_3d_button.setToolTip(self.tr("Open standalone interactive 3D Web terrain in default web browser"))
+        self.open_report_button = QPushButton(self.tr("📊 View Report"))
+        self.open_report_button.setEnabled(True)
+        self.open_report_button.setToolTip(self.tr("Open Topographic Intelligence Report dashboard in default web browser"))
+        self.docs_button = QPushButton(self.tr("📖 Documentation"))
+        self.docs_button.setToolTip(self.tr("Open online user manual and scientific documentation on GitHub"))
+        results_bar.addWidget(self.open_3d_button)
+        results_bar.addWidget(self.open_report_button)
+        results_bar.addWidget(self.docs_button)
+        outer.addLayout(results_bar)
+
         self.setWidget(body)
-        self.resize(480, 780)
+        self.resize(480, 810)
 
     def _create_products_tab(self):
         tab = QWidget()
@@ -166,6 +209,10 @@ class TerrainStudioDock(QDockWidget):
             ("CREATE_TPI", self.tr("Topographic Position Index (TPI)"), True),
             ("CREATE_ROUGHNESS", self.tr("Roughness"), True),
             ("CREATE_SPOT_ELEVATIONS", self.tr("Spot elevation peaks (markers)"), True),
+            ("CREATE_SUITABILITY", self.tr("Slope construction suitability (TCVN)"), True),
+            ("CREATE_LANDSLIDE", self.tr("Landslide hazard & RUSLE LS-factor"), True),
+            ("CREATE_3D_VIEWER", self.tr("Interactive 3D Web Terrain Viewer (HTML)"), True),
+            ("CREATE_INTELLIGENCE_REPORT", self.tr("Topographic Intelligence Report (HTML)"), True),
             ("CREATE_PROFILE_CURVATURE", self.tr("Profile curvature (flow acceleration)"), False),
             ("CREATE_PLANFORM_CURVATURE", self.tr("Planform curvature (flow convergence)"), False),
         )
@@ -209,22 +256,25 @@ class TerrainStudioDock(QDockWidget):
     def _create_hydrology_tab(self):
         tab = QWidget()
         layout = QFormLayout(tab)
-        self.hydrology_check = QCheckBox(self.tr("Extract potential stream network"))
-        self.hydrology_check.setChecked(False)
+        self.hydrology_check = QCheckBox(self.tr("Extract continuous Strahler river network"))
+        self.hydrology_check.setChecked(True)
         self.stream_threshold = QDoubleSpinBox()
         self.stream_threshold.setDecimals(2)
         self.stream_threshold.setRange(0.01, 1000000000.0)
         self.stream_threshold.setValue(25.0)
         self.stream_threshold.setSuffix(" ha")
+        self.twi_check = QCheckBox(self.tr("Topographic Wetness Index (TWI)"))
+        self.twi_check.setChecked(True)
         self.basins_check = QCheckBox(self.tr("Save watershed basin raster"))
         self.basins_check.setChecked(True)
         layout.addRow(self.hydrology_check)
         layout.addRow(self.tr("Minimum contributing area"), self.stream_threshold)
+        layout.addRow(self.twi_check)
         layout.addRow(self.basins_check)
         self.hydrology_note = QLabel(
             self.tr(
                 "Uses priority-flood depression filling and deterministic D8 flow direction without GRASS. "
-                "Smaller thresholds yield dense drainage networks; larger thresholds keep main streams."
+                "Continuous river polylines are graded into 4 Strahler stream orders with specialized symbology."
             )
         )
         self.hydrology_note.setWordWrap(True)
@@ -320,6 +370,16 @@ class TerrainStudioDock(QDockWidget):
     def _create_report_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+
+        tab_actions = QHBoxLayout()
+        self.tab_open_3d_button = QPushButton(self.tr("🌐 Open 3D Map in Browser"))
+        self.tab_open_3d_button.setEnabled(False)
+        self.tab_open_report_button = QPushButton(self.tr("📊 Open Intelligence Report"))
+        self.tab_open_report_button.setEnabled(False)
+        tab_actions.addWidget(self.tab_open_3d_button)
+        tab_actions.addWidget(self.tab_open_report_button)
+        layout.addLayout(tab_actions)
+
         self.report_edit = QPlainTextEdit()
         self.report_edit.setReadOnly(True)
         self.report_edit.setPlaceholderText(self.tr("Click 'Inspect DEM' to view CRS, pixel size, NoData and contour suggestions."))
@@ -344,8 +404,74 @@ class TerrainStudioDock(QDockWidget):
         self.clear_button.clicked.connect(self._clear_selection)
         self.run_button.clicked.connect(self.run)
         self.cancel_button.clicked.connect(self.cancel_task)
+        self.open_3d_button.clicked.connect(self._open_3d_map)
+        self.open_report_button.clicked.connect(self._open_report)
+        self.tab_open_3d_button.clicked.connect(self._open_3d_map)
+        self.tab_open_report_button.clicked.connect(self._open_report)
+        self.docs_button.clicked.connect(self._open_online_docs)
+        self.extent_combo.currentIndexChanged.connect(self._on_extent_mode_changed)
+        self.extent_layer_combo.layerChanged.connect(self._on_extent_mode_changed)
         self._update_hydrology_controls()
         self._update_layout_controls()
+        self._on_extent_mode_changed()
+
+    def _on_extent_mode_changed(self):
+        mode = self.extent_combo.currentData()
+        self.extent_layer_combo.setEnabled(mode == "layer")
+        if mode == "full":
+            self.extent_label.setText(self.tr("Extent: Full DEM coverage"))
+        elif mode == "canvas":
+            if self.iface and self.iface.mapCanvas():
+                ext = self.iface.mapCanvas().extent()
+                self.extent_label.setText(f"Map Canvas: ({ext.xMinimum():.1f}, {ext.yMinimum():.1f}) → ({ext.xMaximum():.1f}, {ext.yMaximum():.1f})")
+            else:
+                self.extent_label.setText(self.tr("Extent: Current map canvas view"))
+        elif mode == "layer":
+            layer = self.extent_layer_combo.currentLayer()
+            if layer and layer.isValid():
+                ext = layer.extent()
+                self.extent_label.setText(f"{layer.name()}: ({ext.xMinimum():.1f}, {ext.yMinimum():.1f}) → ({ext.xMaximum():.1f}, {ext.yMaximum():.1f})")
+            else:
+                self.extent_label.setText(self.tr("No boundary layer selected"))
+
+    def _open_online_docs(self):
+        QDesktopServices.openUrl(QUrl("https://github.com/hulauwa/terrain-product-studio"))
+
+    def _open_3d_map(self):
+        path = getattr(self, "_last_3d_path", None)
+        if not path or not os.path.exists(path):
+            folder = self.output_edit.text().strip()
+            prefix = sanitize_prefix(self.prefix_edit.text())
+            candidate = os.path.join(folder, f"{prefix}_interactive_3d_terrain.html")
+            if os.path.exists(candidate):
+                path = candidate
+                self._last_3d_path = candidate
+        if path and os.path.exists(path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        else:
+            QMessageBox.information(
+                self,
+                self.tr("3D Interactive Map"),
+                self.tr("No 3D Map HTML file has been generated yet. Please run the product package with 'Interactive 3D Web Terrain Viewer' checked."),
+            )
+
+    def _open_report(self):
+        path = getattr(self, "_last_report_html_path", None)
+        if not path or not os.path.exists(path):
+            folder = self.output_edit.text().strip()
+            prefix = sanitize_prefix(self.prefix_edit.text())
+            candidate = os.path.join(folder, f"{prefix}_topographic_intelligence_report.html")
+            if os.path.exists(candidate):
+                path = candidate
+                self._last_report_html_path = candidate
+        if path and os.path.exists(path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        else:
+            QMessageBox.information(
+                self,
+                self.tr("Intelligence Report"),
+                self.tr("No Topographic Intelligence Report has been generated yet. Please run the product package with 'Topographic Intelligence Report' checked."),
+            )
 
     def _on_layer_changed(self, layer):
         bands = layer.bandCount() if layer is not None and layer.isValid() else 1
@@ -448,7 +574,7 @@ class TerrainStudioDock(QDockWidget):
 
     def _select_quick(self):
         for key, checkbox in self.products.items():
-            checkbox.setChecked(key in {"CREATE_COLOR_RELIEF", "CREATE_MULTI_HILLSHADE"})
+            checkbox.setChecked(key in {"CREATE_COLOR_RELIEF", "CREATE_MULTI_HILLSHADE", "CREATE_3D_VIEWER", "CREATE_INTELLIGENCE_REPORT"})
         self.contour_check.setChecked(True)
         self.hydrology_check.setChecked(False)
 
@@ -482,6 +608,13 @@ class TerrainStudioDock(QDockWidget):
             "CONTOUR_INTERVAL": self.contour_interval.value(),
             "INDEX_MULTIPLIER": self.index_multiplier.value(),
         }
+        mode = self.extent_combo.currentData()
+        if mode == "canvas" and self.iface and self.iface.mapCanvas():
+            parameters["EXTENT"] = self.iface.mapCanvas().extent()
+        elif mode == "layer":
+            layer = self.extent_layer_combo.currentLayer()
+            if layer and layer.isValid():
+                parameters["EXTENT"] = layer.extent()
         parameters.update({key: checkbox.isChecked() for key, checkbox in self.products.items()})
         return parameters
 
@@ -601,6 +734,7 @@ class TerrainStudioDock(QDockWidget):
                     "Z_UNIT": self.z_unit_combo.currentIndex(),
                     "STREAM_THRESHOLD_HA": self.stream_threshold.value(),
                     "CREATE_BASINS": self.basins_check.isChecked(),
+                    "CREATE_TWI": self.twi_check.isChecked(),
                 }
                 self.feedback = QgsProcessingFeedback()
                 self.feedback.progressChanged.connect(lambda val: self.progress.setValue(int(val)))
@@ -617,6 +751,48 @@ class TerrainStudioDock(QDockWidget):
         if self._terrain_results:
             final_results.update(self._terrain_results)
             self._terrain_results = None
+
+        # Refresh 3D Web Viewer & Intelligence Report with newly generated Hydrology rivers & TWI
+        working_dem_path = str(final_results.get("WORKING_DEM", ""))
+        if not working_dem_path and self.dem_combo.currentLayer():
+            working_dem_path = self.dem_combo.currentLayer().source().split("|")[0]
+        prefix = sanitize_prefix(self.prefix_edit.text())
+
+        if final_results.get("STREAMS") and os.path.exists(str(final_results.get("STREAMS"))):
+            v3d_target = final_results.get("VIEWER_3D")
+            if v3d_target and os.path.exists(str(v3d_target)):
+                try:
+                    generate_3d_web_viewer(
+                        dem_path=working_dem_path,
+                        output_html_path=str(v3d_target),
+                        title=f"{prefix.title()} 3D Interactive WebGIS Studio",
+                        stream_vector_path=str(final_results.get("STREAMS")),
+                        contour_vector_path=final_results.get("CONTOURS"),
+                        spot_peaks_path=final_results.get("SPOT_ELEVATIONS"),
+                        slope_path=final_results.get("SLOPE"),
+                        twi_path=final_results.get("TWI"),
+                        suitability_path=final_results.get("SUITABILITY"),
+                        hazard_path=final_results.get("LANDSLIDE_HAZARD"),
+                    )
+                except Exception:
+                    pass
+
+            intel_target = final_results.get("INTELLIGENCE_REPORT")
+            if intel_target and os.path.exists(str(intel_target)):
+                try:
+                    generate_intelligence_report(
+                        dem_path=working_dem_path,
+                        output_html_path=str(intel_target),
+                        title=f"{prefix.title()} Topographic Intelligence Report",
+                        slope_path=final_results.get("SLOPE"),
+                        aspect_path=final_results.get("ASPECT"),
+                        stream_vector_path=str(final_results.get("STREAMS")),
+                        suitability_path=final_results.get("SUITABILITY"),
+                        hazard_path=final_results.get("LANDSLIDE_HAZARD"),
+                        twi_path=final_results.get("TWI"),
+                    )
+                except Exception:
+                    pass
 
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
@@ -661,9 +837,22 @@ class TerrainStudioDock(QDockWidget):
                     self.iface.openLayoutDesigner(layout)
             except Exception as error:  # keep generated terrain products available
                 self.report_edit.appendPlainText(f"{self.tr('Layout error')}: {error}")
-                self.iface.messageBar().pushWarning(
-                    "Terrain Product Studio", f"{self.tr('Products loaded, layout error')}: {error}"
-                )
+        
+        # Activate 3D Web Viewer & Intelligence Report buttons if generated
+        v3d = final_results.get("VIEWER_3D")
+        if v3d and os.path.exists(str(v3d)):
+            self._last_3d_path = str(v3d)
+            self.open_3d_button.setEnabled(True)
+            self.tab_open_3d_button.setEnabled(True)
+            self.report_edit.appendPlainText(f"\n🌐 3D Interactive Web Map: {v3d}")
+
+        intel = final_results.get("INTELLIGENCE_REPORT")
+        if intel and os.path.exists(str(intel)):
+            self._last_report_html_path = str(intel)
+            self.open_report_button.setEnabled(True)
+            self.tab_open_report_button.setEnabled(True)
+            self.report_edit.appendPlainText(f"📊 Topographic Intelligence Report: {intel}")
+
         self.iface.messageBar().pushSuccess(
             "Terrain Product Studio", f"{self.tr('Successfully built and loaded')} {loaded} {self.tr('terrain layers.')}{layout_message}"
         )

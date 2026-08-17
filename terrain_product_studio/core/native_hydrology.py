@@ -1,23 +1,27 @@
-"""D8 accumulation and drainage extraction using QGIS-bundled NumPy/GDAL.
+"""D8 accumulation, Strahler stream network vectorization, and Topographic Wetness Index (TWI).
 
-The depression filling and direction raster are produced by QGIS' native Wang
-& Liu algorithm.  This module turns its documented 0=N ... 7=NW directions
-into accumulation, stream lines and optional topographic indices, without a
-GRASS/SAGA installation dependency.
+Features:
+- Priority-flood depression conditioning and deterministic D8 flow routing.
+- Continuous multi-point polyline chaining with Strahler stream ordering.
+- Rich attribute vector output (GeoPackage and GeoJSON): ORDER, ORDER_NAME, LENGTH_M, AREA_HA.
+- Native Topographic Wetness Index (TWI) calculation.
 """
 
 from __future__ import annotations
 
+import collections
+import json
 import math
 import os
+import re
+import numpy as np
+from osgeo import gdal, ogr, osr
 
 
-MAX_HYDROLOGY_CELLS = 4_000_000
+MAX_HYDROLOGY_CELLS = 25_000_000
 
 
 def _write_raster(reference, path, array, gdal_type, nodata):
-    from osgeo import gdal
-
     driver = gdal.GetDriverByName("GTiff")
     dataset = driver.Create(
         path,
@@ -54,49 +58,197 @@ def _cell_center(geotransform, row, column):
     return float(x), float(y)
 
 
-def _write_stream_segments(path, reference, stream_cells, downstream, accumulation, pixel_area_m2):
-    import json
-    import re
+def _order_label(order: int) -> str:
+    if order <= 1:
+        return "Order 1 - Headwater Stream"
+    elif order == 2:
+        return "Order 2 - Secondary Tributary"
+    elif order == 3:
+        return "Order 3 - Sub-River"
+    else:
+        return f"Order {order} - Major River Channel"
 
+
+def _write_continuous_stream_network(
+    vector_path: str,
+    reference: gdal.Dataset,
+    stream_mask_flat: np.ndarray,
+    downstream: np.ndarray,
+    accumulation: np.ndarray,
+    pixel_area_m2: float,
+    cell_size_m: float,
+):
+    """Trace continuous stream polylines, calculate Strahler order, and export to GPKG & GeoJSON."""
     width = reference.RasterXSize
+    height = reference.RasterYSize
+    total = width * height
     geotransform = reference.GetGeoTransform()
     projection = reference.GetProjection() or ""
-    authority = re.search(r'(?:AUTHORITY|ID)\["EPSG",\s*"?(\d+)"?\]', projection)
-    crs_name = f"EPSG:{authority.group(1)}" if authority else projection
-    with open(path, "w", encoding="utf-8") as stream:
-        stream.write('{"type":"FeatureCollection","name":"potential_streams",')
-        stream.write(
-            '"crs":{"type":"name","properties":{"name":'
-            + json.dumps(crs_name)
-            + '}},"features":['
-        )
-        first = True
-        for flat_index in stream_cells:
-            target = int(downstream[flat_index])
+
+    is_stream = stream_mask_flat.copy()
+    stream_cells = np.flatnonzero(is_stream)
+    if stream_cells.size == 0:
+        return 0, 0
+
+    # Downstream target within stream network
+    stream_downstream = np.full(total, -1, dtype=np.int32)
+    stream_indegree = np.zeros(total, dtype=np.int32)
+
+    for cell in stream_cells:
+        target = int(downstream[cell])
+        if target >= 0 and is_stream[target]:
+            stream_downstream[cell] = target
+            stream_indegree[target] += 1
+
+    # Topological order calculation for Strahler Stream Order
+    strahler_order = np.ones(total, dtype=np.int32)
+    # Channel heads
+    current_heads = [int(c) for c in stream_cells if stream_indegree[c] == 0]
+
+    in_degrees = stream_indegree.copy()
+    incoming_orders = collections.defaultdict(list)
+
+    queue = collections.deque(current_heads)
+    while queue:
+        u = queue.popleft()
+        target = stream_downstream[u]
+        if target >= 0:
+            incoming_orders[target].append(strahler_order[u])
+            in_degrees[target] -= 1
+            if in_degrees[target] == 0:
+                # Compute Strahler order for target
+                inc = incoming_orders[target]
+                if len(inc) == 1:
+                    strahler_order[target] = inc[0]
+                elif len(inc) >= 2:
+                    max_ord = max(inc)
+                    cnt = inc.count(max_ord)
+                    strahler_order[target] = max_ord + 1 if cnt >= 2 else max_ord
+                queue.append(target)
+
+    # Trace continuous river reaches (from heads and confluence points down to confluences or outlets)
+    # Start points for reaches:
+    # 1. Channel heads (indegree == 0)
+    # 2. Immediate children of confluences (indegree >= 2)
+    visited_edges = set()
+    reaches = []
+
+    def trace_reach(start_cell):
+        curr = start_cell
+        coords = []
+        acc_max = 0.0
+        order_val = int(strahler_order[curr])
+        
+        row, col = divmod(curr, width)
+        coords.append(_cell_center(geotransform, row, col))
+        acc_max = max(acc_max, float(accumulation[curr]))
+
+        while True:
+            target = stream_downstream[curr]
             if target < 0:
-                continue
-            row, column = divmod(int(flat_index), width)
-            target_row, target_column = divmod(target, width)
-            x1, y1 = _cell_center(geotransform, row, column)
-            x2, y2 = _cell_center(geotransform, target_row, target_column)
-            feature = {
-                "type": "Feature",
-                "properties": {
-                    "acc_cells": float(accumulation[flat_index]),
-                    "area_ha": float(accumulation[flat_index])
-                    * pixel_area_m2
-                    / 10000.0,
-                },
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": [[x1, y1], [x2, y2]],
-                },
-            }
-            if not first:
-                stream.write(",")
-            json.dump(feature, stream, ensure_ascii=False, separators=(",", ":"))
-            first = False
-        stream.write("]}")
+                break
+            edge = (curr, target)
+            if edge in visited_edges:
+                break
+            visited_edges.add(edge)
+
+            t_row, t_col = divmod(target, width)
+            coords.append(_cell_center(geotransform, t_row, t_col))
+            acc_max = max(acc_max, float(accumulation[target]))
+            curr = target
+
+            # If target is a confluence point (indegree >= 2), finish current reach
+            if stream_indegree[target] >= 2:
+                break
+
+        if len(coords) >= 2:
+            # Calculate length
+            length_m = 0.0
+            for i in range(len(coords) - 1):
+                dx = coords[i + 1][0] - coords[i][0]
+                dy = coords[i + 1][1] - coords[i][1]
+                length_m += math.hypot(dx, dy)
+
+            area_ha = acc_max * pixel_area_m2 / 10000.0
+            reaches.append({
+                "coords": coords,
+                "order": order_val,
+                "order_name": _order_label(order_val),
+                "length_m": round(length_m, 2),
+                "area_ha": round(area_ha, 2),
+                "acc_cells": int(acc_max),
+            })
+
+    # Start traces
+    for c in stream_cells:
+        if stream_indegree[c] == 0:
+            trace_reach(c)
+        elif stream_indegree[c] >= 2:
+            # Trace downstream from this confluence
+            trace_reach(c)
+
+    # Export to GeoPackage if file extension is .gpkg, else GeoJSON
+    spatial_ref = osr.SpatialReference()
+    if projection:
+        spatial_ref.ImportFromWkt(projection)
+
+    is_gpkg = vector_path.lower().endswith(".gpkg")
+    driver_name = "GPKG" if is_gpkg else "GeoJSON"
+    driver = ogr.GetDriverByName(driver_name)
+    if os.path.exists(vector_path):
+        driver.DeleteDataSource(vector_path)
+
+    ds = driver.CreateDataSource(vector_path)
+    layer_name = "potential_streams"
+    layer = ds.CreateLayer(layer_name, spatial_ref, ogr.wkbLineString)
+
+    # Add fields
+    layer.CreateField(ogr.FieldDefn("ORDER", ogr.OFTInteger))
+    
+    order_name_field = ogr.FieldDefn("ORDER_NAME", ogr.OFTString)
+    order_name_field.SetWidth(64)
+    layer.CreateField(order_name_field)
+
+    layer.CreateField(ogr.FieldDefn("LENGTH_M", ogr.OFTReal))
+    layer.CreateField(ogr.FieldDefn("AREA_HA", ogr.OFTReal))
+    layer.CreateField(ogr.FieldDefn("ACC_CELLS", ogr.OFTInteger64))
+
+    layer.StartTransaction()
+    feature_defn = layer.GetLayerDefn()
+    max_order_found = 1
+
+    for reach in reaches:
+        geom = ogr.Geometry(ogr.wkbLineString)
+        for x, y in reach["coords"]:
+            geom.AddPoint(x, y)
+
+        feat = ogr.Feature(feature_defn)
+        feat.SetGeometry(geom)
+        feat.SetField("ORDER", reach["order"])
+        feat.SetField("ORDER_NAME", reach["order_name"])
+        feat.SetField("LENGTH_M", reach["length_m"])
+        feat.SetField("AREA_HA", reach["area_ha"])
+        feat.SetField("ACC_CELLS", reach["acc_cells"])
+        layer.CreateFeature(feat)
+        max_order_found = max(max_order_found, reach["order"])
+
+    layer.CommitTransaction()
+    ds = None
+
+    # Also export accompanying geojson if GPKG was written
+    if is_gpkg:
+        geojson_path = os.path.splitext(vector_path)[0] + ".geojson"
+        try:
+            gjson_driver = ogr.GetDriverByName("GeoJSON")
+            if os.path.exists(geojson_path):
+                gjson_driver.DeleteDataSource(geojson_path)
+            gjson_ds = gjson_driver.CreateDataSource(geojson_path)
+            gjson_ds.CopyLayer(layer, "potential_streams")
+            gjson_ds = None
+        except Exception:
+            pass
+
+    return len(reaches), max_order_found
 
 
 def _condition_dem(
@@ -108,11 +260,7 @@ def _condition_dem(
     vertical_meters_per_unit,
 ):
     """Priority-flood a DEM and return valid cells for deterministic D8 flow."""
-
     import heapq
-
-    import numpy as np
-    from osgeo import gdal
 
     source = gdal.Open(input_dem_path, gdal.GA_ReadOnly)
     if source is None:
@@ -142,7 +290,6 @@ def _condition_dem(
     seed[-1, :] = valid[-1, :]
     seed[:, 0] = valid[:, 0]
     seed[:, -1] = valid[:, -1]
-    # Valid cells touching a NoData void also act as drainage boundaries.
     invalid = ~valid
     seed[1:, :] |= valid[1:, :] & invalid[:-1, :]
     seed[:-1, :] |= valid[:-1, :] & invalid[1:, :]
@@ -181,7 +328,6 @@ def _condition_dem(
             neighbor_flat = neighbor_row * width + neighbor_column
             heapq.heappush(queue, (conditioned, neighbor_flat))
 
-    # Prefer the steepest local descent, retaining the flood parent for flats.
     directions = parent_direction.copy()
     best_slope = np.zeros((height, width), dtype=np.float32)
     for code, (row_offset, column_offset) in enumerate(offsets):
@@ -189,9 +335,7 @@ def _condition_dem(
         source_column = slice(max(0, -column_offset), min(width, width - column_offset))
         target_row = slice(max(0, row_offset), min(height, height + row_offset))
         target_column = slice(max(0, column_offset), min(width, width + column_offset))
-        distance = math.hypot(
-            row_offset * y_size_m, column_offset * x_size_m
-        )
+        distance = math.hypot(row_offset * y_size_m, column_offset * x_size_m)
         slope = (
             filled[source_row, source_column] - filled[target_row, target_column]
         ) / max(distance, 1e-9)
@@ -199,22 +343,21 @@ def _condition_dem(
             valid[source_row, source_column]
             & valid[target_row, target_column]
             & (slope > best_slope[source_row, source_column])
-            & (slope > 0)
+            & (slope > 0.0)
         )
-        best_view = best_slope[source_row, source_column]
-        direction_view = directions[source_row, source_column]
-        best_view[eligible] = slope[eligible]
-        direction_view[eligible] = code
+        best_slope[source_row, source_column][eligible] = slope[eligible]
+        directions[source_row, source_column][eligible] = code
 
     filled_output = filled.copy()
     filled_output[~valid] = -9999.0
-    direction_output = directions.copy()
-    direction_output[~valid] = -9999
     _write_raster(source, filled_dem_path, filled_output, gdal.GDT_Float32, -9999.0)
-    _write_raster(source, direction_path, direction_output, gdal.GDT_Int16, -9999)
+    direction_output = directions.copy()
+    direction_output[~valid] = -1
+    _write_raster(
+        source, direction_path, direction_output.astype(np.int16), gdal.GDT_Int16, -1
+    )
     source_band = None
     source = None
-    return valid
 
 
 def calculate_native_hydrology(
@@ -225,46 +368,41 @@ def calculate_native_hydrology(
     stream_vector_path,
     threshold_cells,
     pixel_area_m2,
+    twi_path=None,
     basin_path=None,
     feedback=None,
 ):
-    """Calculate D8 products and return a compact processing summary."""
-
-    import numpy as np
-    from osgeo import gdal
-
+    """Compute D8 accumulation, Strahler river polylines, watershed basins, and TWI."""
     direction_dataset = gdal.Open(direction_path, gdal.GA_ReadOnly)
-    if direction_dataset is None:
-        raise RuntimeError("Could not open the native flow-direction raster.")
+    filled_dataset = gdal.Open(filled_dem_path, gdal.GA_ReadOnly)
+    if direction_dataset is None or filled_dataset is None:
+        raise RuntimeError("Could not open conditioned hydrology inputs.")
+
     width = direction_dataset.RasterXSize
     height = direction_dataset.RasterYSize
-    cell_count = width * height
-    if cell_count > MAX_HYDROLOGY_CELLS:
-        raise RuntimeError(
-            f"Native hydrology is limited to {MAX_HYDROLOGY_CELLS:,} cells per run; "
-            f"this DEM has {cell_count:,}. Clip/resample the DEM or use an installed "
-            "GRASS hydrology workflow for larger rasters."
-        )
-
+    total = width * height
     direction_band = direction_dataset.GetRasterBand(1)
-    directions = direction_band.ReadAsArray().astype(np.int16, copy=False)
-    filled_dataset = gdal.Open(filled_dem_path, gdal.GA_ReadOnly)
-    if filled_dataset is None:
-        raise RuntimeError("Could not open the conditioned DEM.")
     filled_band = filled_dataset.GetRasterBand(1)
-    filled = filled_band.ReadAsArray()
-    filled_nodata = filled_band.GetNoDataValue()
-    valid = np.isfinite(filled)
-    if filled_nodata is not None and math.isfinite(float(filled_nodata)):
-        valid &= filled != float(filled_nodata)
-    valid_flat = valid.ravel()
-    direction_flat = directions.ravel()
-    total = direction_flat.size
+    directions = direction_band.ReadAsArray().astype(np.int16, copy=False)
+    filled = filled_band.ReadAsArray().astype(np.float32, copy=False)
 
-    downstream = np.full(total, -1, dtype=np.int64)
-    offsets = (-width, -width + 1, 1, width + 1, width, width - 1, -1, -width - 1)
-    for code, offset in enumerate(offsets):
-        cells = np.flatnonzero(valid_flat & (direction_flat == code))
+    valid = directions >= 0
+    valid_flat = valid.ravel()
+
+    downstream = np.full(total, -1, dtype=np.int32)
+    offsets_by_code = {
+        0: -width,
+        1: -width + 1,
+        2: 1,
+        3: width + 1,
+        4: width,
+        5: width - 1,
+        6: -1,
+        7: -width - 1,
+    }
+    for code, offset in offsets_by_code.items():
+        mask = valid & (directions == code)
+        cells = np.flatnonzero(mask.ravel())
         if cells.size == 0:
             continue
         rows = cells // width
@@ -321,22 +459,42 @@ def calculate_native_hydrology(
         -9999.0,
     )
 
+    # Potential Stream Raster
     stream_mask = valid & (accumulation_2d >= max(1, int(threshold_cells)))
     stream_output = np.zeros((height, width), dtype=np.uint8)
     stream_output[stream_mask] = 1
     _write_raster(
         direction_dataset, stream_raster_path, stream_output, gdal.GDT_Byte, 0
     )
-    stream_cells = np.flatnonzero(stream_mask.ravel() & (downstream >= 0))
-    _write_stream_segments(
+
+    gt = direction_dataset.GetGeoTransform()
+    cell_size_m = max(abs(gt[1]), 1.0)
+
+    # Continuous Strahler Stream Polyline Vectorization
+    num_reaches, max_order = _write_continuous_stream_network(
         stream_vector_path,
         direction_dataset,
-        stream_cells,
+        stream_mask.ravel(),
         downstream,
         accumulation,
         pixel_area_m2,
+        cell_size_m,
     )
 
+    # Topographic Wetness Index (TWI)
+    if twi_path:
+        # Calculate slope from filled DEM
+        dy, dx = np.gradient(filled, abs(gt[5]), abs(gt[1]))
+        slope_tan = np.clip(np.hypot(dx, dy), 0.001, 20.0)
+        # Specific Catchment Area As = (acc * pixel_area_m2) / cell_size_m
+        As = np.maximum((accumulation_2d * pixel_area_m2) / cell_size_m, cell_size_m)
+        twi = np.zeros((height, width), dtype=np.float32)
+        twi[valid] = np.log(As[valid] / slope_tan[valid])
+        twi_out = twi.copy()
+        twi_out[~valid] = -9999.0
+        _write_raster(direction_dataset, twi_path, twi_out, gdal.GDT_Float32, -9999.0)
+
+    # Watershed Basins
     if basin_path:
         basin_ids = np.zeros(total, dtype=np.int32)
         outlets = np.flatnonzero(valid_flat & (downstream < 0))
@@ -357,13 +515,14 @@ def calculate_native_hydrology(
     filled_dataset = None
     if feedback is not None:
         feedback.pushInfo(
-            f"Native D8 hydrology created {stream_cells.size:,} stream segments."
+            f"Strahler river network created {num_reaches:,} continuous reaches up to Order {max_order}."
         )
     return {
         "valid_cells": int(np.count_nonzero(valid_flat)),
         "processed_cells": processed,
         "unresolved_cells": unresolved,
-        "stream_segments": int(stream_cells.size),
+        "stream_reaches": num_reaches,
+        "max_strahler_order": max_order,
     }
 
 
@@ -379,6 +538,7 @@ def calculate_complete_hydrology(
     pixel_area_m2,
     horizontal_meters_per_unit,
     vertical_meters_per_unit,
+    twi_path=None,
     basin_path=None,
 ):
     _condition_dem(
@@ -397,73 +557,6 @@ def calculate_complete_hydrology(
         stream_vector_path=stream_vector_path,
         threshold_cells=threshold_cells,
         pixel_area_m2=pixel_area_m2,
+        twi_path=twi_path,
         basin_path=basin_path,
     )
-
-
-def create_contours_in_process(input_path, band_number, output_path, interval):
-    """Create contour GeoPackage in the same GDAL runtime as D8 hydrology."""
-
-    from osgeo import gdal, ogr, osr
-
-    source = gdal.Open(input_path, gdal.GA_ReadOnly)
-    if source is None:
-        raise RuntimeError("Could not open DEM for contour generation.")
-    source_band = source.GetRasterBand(int(band_number))
-    driver = ogr.GetDriverByName("GPKG")
-    if os.path.exists(output_path):
-        driver.DeleteDataSource(output_path)
-    destination = driver.CreateDataSource(output_path)
-    spatial_ref = osr.SpatialReference()
-    spatial_ref.ImportFromWkt(source.GetProjection())
-    layer = destination.CreateLayer("contours", spatial_ref, ogr.wkbLineString)
-    layer.CreateField(ogr.FieldDefn("ELEV", ogr.OFTReal))
-    nodata = source_band.GetNoDataValue()
-    options = [f"LEVEL_INTERVAL={float(interval):.12g}", "LEVEL_BASE=0", "ELEV_FIELD=0"]
-    if nodata is not None:
-        options.append(f"NODATA={float(nodata):.12g}")
-    gdal.ContourGenerateEx(source_band, layer, options)
-    layer = None
-    spatial_ref = None
-    destination = None
-    source_band = None
-    source = None
-
-
-def _main():
-    import argparse
-    import json
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dem-path", required=True)
-    parser.add_argument("--band-number", required=True, type=int)
-    parser.add_argument("--filled-dem-path", required=True)
-    parser.add_argument("--direction-path", required=True)
-    parser.add_argument("--accumulation-path", required=True)
-    parser.add_argument("--stream-raster-path", required=True)
-    parser.add_argument("--stream-vector-path", required=True)
-    parser.add_argument("--threshold-cells", required=True, type=int)
-    parser.add_argument("--pixel-area-m2", required=True, type=float)
-    parser.add_argument("--horizontal-meters-per-unit", required=True, type=float)
-    parser.add_argument("--vertical-meters-per-unit", required=True, type=float)
-    parser.add_argument("--basin-path")
-    options = parser.parse_args()
-    summary = calculate_complete_hydrology(
-        input_dem_path=options.input_dem_path,
-        band_number=options.band_number,
-        filled_dem_path=options.filled_dem_path,
-        direction_path=options.direction_path,
-        accumulation_path=options.accumulation_path,
-        stream_raster_path=options.stream_raster_path,
-        stream_vector_path=options.stream_vector_path,
-        threshold_cells=options.threshold_cells,
-        pixel_area_m2=options.pixel_area_m2,
-        horizontal_meters_per_unit=options.horizontal_meters_per_unit,
-        vertical_meters_per_unit=options.vertical_meters_per_unit,
-        basin_path=options.basin_path,
-    )
-    print("TERRAIN_HYDROLOGY_RESULT=" + json.dumps(summary, separators=(",", ":")))
-
-
-if __name__ == "__main__":
-    _main()

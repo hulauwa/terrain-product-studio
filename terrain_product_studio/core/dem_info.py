@@ -102,6 +102,31 @@ def inspect_dem_layer(layer, band: int = 1, raster_outputs: int = 8) -> Dict[str
         warnings.append("The selected band has no elevation range.")
 
     estimate = estimate_output_bytes(width, height, raster_outputs)
+
+    # Scale-Aware Intelligence Metrics
+    # Estimate pixel size in meters
+    approx_px_m = pixel_x if not crs.isGeographic() else pixel_x * 111320.0
+    if approx_px_m <= 3.0:
+        rec_scale = "1:5,000 – 1:10,000 (Detailed Engineering / Site Plan)"
+        rec_contour = 2.5 if (robust_maximum - robust_minimum) < 100 else 5.0
+        rec_density = "25 – 40 points/km²"
+    elif approx_px_m <= 8.0:
+        rec_scale = "1:10,000 – 1:25,000 (Large-Scale Topographic Base)"
+        rec_contour = 5.0 if (robust_maximum - robust_minimum) < 200 else 10.0
+        rec_density = "15 – 25 points/km²"
+    elif approx_px_m <= 15.0:
+        rec_scale = "1:25,000 – 1:50,000 (Standard Regional Topography)"
+        rec_contour = 10.0 if (robust_maximum - robust_minimum) < 500 else 20.0
+        rec_density = "8 – 15 points/km²"
+    elif approx_px_m <= 35.0:
+        rec_scale = "1:50,000 – 1:100,000 (Regional Master Planning)"
+        rec_contour = 20.0 if (robust_maximum - robust_minimum) < 1000 else 50.0
+        rec_density = "4 – 8 points/km²"
+    else:
+        rec_scale = "1:100,000 – 1:250,000 (National / Synoptic Overview)"
+        rec_contour = 50.0 if (robust_maximum - robust_minimum) < 2000 else 100.0
+        rec_density = "1 – 3 points/km²"
+
     return {
         "name": layer.name(),
         "source": layer.source(),
@@ -112,6 +137,10 @@ def inspect_dem_layer(layer, band: int = 1, raster_outputs: int = 8) -> Dict[str
         "cells": width * height,
         "pixel_size_x": pixel_x,
         "pixel_size_y": pixel_y,
+        "approx_pixel_m": approx_px_m,
+        "recommended_map_scale": rec_scale,
+        "recommended_contour_interval": recommended or rec_contour,
+        "recommended_peak_density": rec_density,
         "crs": crs_name,
         "is_geographic": bool(crs.isGeographic()) if crs.isValid() else None,
         "suggested_working_crs": working_crs,
@@ -120,7 +149,6 @@ def inspect_dem_layer(layer, band: int = 1, raster_outputs: int = 8) -> Dict[str
         "maximum": maximum,
         "robust_minimum": robust_minimum,
         "robust_maximum": robust_maximum,
-        "recommended_contour_interval": recommended,
         "has_nodata": has_nodata,
         "nodata": nodata_value,
         "estimated_output_bytes": estimate,
@@ -130,20 +158,24 @@ def inspect_dem_layer(layer, band: int = 1, raster_outputs: int = 8) -> Dict[str
 
 
 def format_dem_report(info: Dict[str, Any]) -> str:
-    """Create a concise, human-readable inspection report."""
+    """Create a concise, human-readable inspection report with scale intelligence."""
 
     nodata = info["nodata"] if info["has_nodata"] else "not declared"
     lines = [
         f"DEM: {info['name']}",
         f"CRS: {info['crs']}",
         f"Working CRS: {info['suggested_working_crs'] or 'not available'}",
-        f"Raster: {info['width']:,} × {info['height']:,} pixels · band {info['band']}/{info['bands']}",
-        f"Pixel: {info['pixel_size_x']:.6g} × {info['pixel_size_y']:.6g}",
-        f"Elevation: {info['minimum']:.3f} to {info['maximum']:.3f}",
-        f"Robust 2–98% range: {info['robust_minimum']:.3f} to {info['robust_maximum']:.3f}",
+        f"Raster Size: {info['width']:,} × {info['height']:,} pixels · band {info['band']}/{info['bands']}",
+        f"Pixel Resolution: {info['pixel_size_x']:.6g} × {info['pixel_size_y']:.6g} (~{info.get('approx_pixel_m', 0):.1f}m)",
+        f"Elevation Range: {info['minimum']:.2f} m → {info['maximum']:.2f} m (Relief: {info['maximum'] - info['minimum']:.2f} m)",
+        f"Robust 2–98% Range: {info['robust_minimum']:.2f} m → {info['robust_maximum']:.2f} m",
         f"NoData: {nodata}",
-        f"Suggested contour interval: {info['recommended_contour_interval']:g}",
-        f"Estimated raster output: {info['estimated_output_size']}",
+        f"Estimated Output Size: {info['estimated_output_size']}",
+        "",
+        "📐 SCALE & CARTOGRAPHY RECOMMENDATIONS:",
+        f"• Recommended Map Scale: {info.get('recommended_map_scale', 'Auto')}",
+        f"• Recommended Contour Interval: {info['recommended_contour_interval']:g} m (Index: {info['recommended_contour_interval']*5:g} m)",
+        f"• Spot Elevation Density: {info.get('recommended_peak_density', 'Standard')}",
     ]
     if info["warnings"]:
         lines.append("")
@@ -152,3 +184,4 @@ def format_dem_report(info: Dict[str, Any]) -> str:
     else:
         lines.extend(("", "No blocking issue was detected."))
     return "\n".join(lines)
+
