@@ -1,10 +1,12 @@
-"""Main QGIS plugin class."""
-
-from __future__ import annotations
-
 import os
 
 from qgis.PyQt.QtCore import Qt, QCoreApplication, QTranslator
+from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtWidgets import QAction
+from qgis.core import QgsApplication
+
+from .dock import TerrainStudioDock
+from .provider import TerrainStudioProvider
 
 
 class TerrainProductStudioPlugin:
