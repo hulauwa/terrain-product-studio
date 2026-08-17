@@ -472,28 +472,55 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             return outputs
 
         # Optional user boundary extent clipping
-        extent_param = self.parameterAsExtent(parameters, "EXTENT", context)
+        extent_param = self.parameterAsExtent(parameters, "EXTENT", context, working_crs)
         if extent_param is not None and not extent_param.isNull() and not extent_param.isEmpty():
-            clipped_path = self._output_path(folder, prefix, "clipped_roi", "tif")
-            multi.pushInfo(self.tr(f"Clipping DEM to selected ROI extent…"))
-            try:
-                clip_res = self._run_child(
-                    "gdal:cliprasterbyextent",
-                    {
-                        "INPUT": working_dem,
-                        "PROJWIN": extent_param,
-                        "NODATA": None,
-                        "OPTIONS": creation_options,
-                        "DATA_TYPE": 0,
-                        "OUTPUT": clipped_path,
-                    },
-                    context=context,
-                    feedback=multi,
-                )
-                if os.path.exists(clipped_path):
-                    working_dem = clipped_path
-            except Exception as e:
-                warnings.append(f"ROI Extent clip notice: {e}")
+            current_layer = QgsRasterLayer(working_dem, "tmp") if isinstance(working_dem, str) else source
+            if current_layer.isValid():
+                dem_rect = current_layer.extent()
+                clipped_rect = extent_param.intersect(dem_rect)
+                if not clipped_rect.isNull() and not clipped_rect.isEmpty() and clipped_rect.width() > 0 and clipped_rect.height() > 0:
+                    clipped_path = self._output_path(folder, prefix, "clipped_roi", "tif")
+                    multi.pushInfo(self.tr(f"Clipping DEM to ROI extent ({clipped_rect.xMinimum():.1f}, {clipped_rect.yMinimum():.1f}) → ({clipped_rect.xMaximum():.1f}, {clipped_rect.yMaximum():.1f})…"))
+                    
+                    input_dem_file = working_dem if isinstance(working_dem, str) else source.source().split("|")[0]
+                    proj_win = [clipped_rect.xMinimum(), clipped_rect.yMaximum(), clipped_rect.xMaximum(), clipped_rect.yMinimum()]
+                    
+                    try:
+                        translate_options = gdal.TranslateOptions(
+                            projWin=proj_win,
+                            creationOptions=list(creation_options),
+                        )
+                        ds_clipped = gdal.Translate(clipped_path, input_dem_file, options=translate_options)
+                        if ds_clipped is not None:
+                            ds_clipped = None
+                            if os.path.exists(clipped_path):
+                                working_dem = clipped_path
+                                outputs[self.WORKING_DEM] = working_dem
+                                multi.pushInfo(self.tr("Successfully clipped DEM to selected ROI extent."))
+                    except Exception as e:
+                        warnings.append(f"GDAL Translate ROI clip notice: {e}")
+                    
+                    # Fallback if translate did not output
+                    if working_dem != clipped_path:
+                        try:
+                            clip_res = self._run_child(
+                                "gdal:cliprasterbyextent",
+                                {
+                                    "INPUT": working_dem,
+                                    "PROJWIN": clipped_rect,
+                                    "NODATA": None,
+                                    "OPTIONS": creation_options,
+                                    "DATA_TYPE": 0,
+                                    "OUTPUT": clipped_path,
+                                },
+                                context=context,
+                                feedback=multi,
+                            )
+                            if os.path.exists(clipped_path):
+                                working_dem = clipped_path
+                                outputs[self.WORKING_DEM] = working_dem
+                        except Exception as e:
+                            warnings.append(f"ROI Extent clip notice: {e}")
 
         working_layer = source
         if isinstance(working_dem, str):

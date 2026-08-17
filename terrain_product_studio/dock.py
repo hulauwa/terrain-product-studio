@@ -36,6 +36,8 @@ from qgis.core import (
     QgsProcessingFeedback,
     QgsProject,
     QgsRasterLayer,
+    QgsRectangle,
+    QgsReferencedRectangle,
     QgsSettings,
 )
 from qgis.gui import QgsMapLayerComboBox
@@ -610,11 +612,14 @@ class TerrainStudioDock(QDockWidget):
         }
         mode = self.extent_combo.currentData()
         if mode == "canvas" and self.iface and self.iface.mapCanvas():
-            parameters["EXTENT"] = self.iface.mapCanvas().extent()
+            canvas = self.iface.mapCanvas()
+            ext = canvas.extent()
+            canvas_crs = canvas.mapSettings().destinationCrs()
+            parameters["EXTENT"] = QgsReferencedRectangle(ext, canvas_crs)
         elif mode == "layer":
             layer = self.extent_layer_combo.currentLayer()
             if layer and layer.isValid():
-                parameters["EXTENT"] = layer.extent()
+                parameters["EXTENT"] = QgsReferencedRectangle(layer.extent(), layer.crs())
         parameters.update({key: checkbox.isChecked() for key, checkbox in self.products.items()})
         return parameters
 
