@@ -620,49 +620,102 @@ def generate_3d_web_viewer(
       constructor(camera, domElement) {{
         this.camera = camera;
         this.domElement = domElement;
-        this.target = new THREE.Vector3();
-        this.enableDamping = true;
-        this.dampingFactor = 0.05;
-        this.rotateSpeed = 1.0;
-        this.zoomSpeed = 1.2;
+        this.target = new THREE.Vector3(0, 0, 0);
+        this.rotateSpeed = 0.6;
+        this.zoomSpeed = 1.15;
         this.autoRotate = false;
-        this.autoRotateSpeed = 2.0;
-        
-        this.spherical = new THREE.Spherical().setFromVector3(camera.position);
-        this.isDragging = false;
-        this.previousMousePosition = {{ x: 0, y: 0 }};
-        
-        this.domElement.addEventListener('mousedown', this.onMouseDown.bind(this));
-        window.addEventListener('mousemove', this.onMouseMove.bind(this));
-        window.addEventListener('mouseup', this.onMouseUp.bind(this));
-        this.domElement.addEventListener('wheel', this.onMouseWheel.bind(this), {{ passive: false }});
+        this.autoRotateSpeed = 1.0;
+
+        // Terrain lies on XY plane, Z is up.
+        // We orbit using azimuth (horizontal) and elevation (vertical tilt).
+        // Derive initial angles from the camera position.
+        const dx = camera.position.x - this.target.x;
+        const dy = camera.position.y - this.target.y;
+        const dz = camera.position.z - this.target.z;
+        this.radius = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        this.azimuth = Math.atan2(dy, dx);          // horizontal rotation
+        this.elevation = Math.asin(dz / this.radius); // vertical tilt (0=horizon, PI/2=top)
+        this.elevation = Math.max(0.05, Math.min(Math.PI / 2 - 0.01, this.elevation));
+
+        this._isDragging = false;
+        this._prevMouse = {{ x: 0, y: 0 }};
+
+        domElement.addEventListener('mousedown', e => {{
+          this._isDragging = true;
+          this._prevMouse = {{ x: e.clientX, y: e.clientY }};
+          e.preventDefault();
+        }});
+        window.addEventListener('mousemove', e => {{
+          if (!this._isDragging) return;
+          const dx = e.clientX - this._prevMouse.x;
+          const dy = e.clientY - this._prevMouse.y;
+          // Horizontal drag → rotate around Z (azimuth)
+          this.azimuth -= dx * 0.008 * this.rotateSpeed;
+          // Vertical drag → change elevation angle
+          this.elevation += dy * 0.008 * this.rotateSpeed;
+          this.elevation = Math.max(0.05, Math.min(Math.PI / 2 - 0.01, this.elevation));
+          this._prevMouse = {{ x: e.clientX, y: e.clientY }};
+          this._applyCamera();
+        }});
+        window.addEventListener('mouseup', () => {{ this._isDragging = false; }});
+        domElement.addEventListener('wheel', e => {{
+          e.preventDefault();
+          this.radius *= e.deltaY > 0 ? this.zoomSpeed : (1 / this.zoomSpeed);
+          this.radius = Math.max(10, Math.min(2000, this.radius));
+          this._applyCamera();
+        }}, {{ passive: false }});
+
+        // Touch support
+        let _t0 = null, _t1 = null, _tDist = 0;
+        domElement.addEventListener('touchstart', e => {{
+          if (e.touches.length === 1) {{
+            this._isDragging = true;
+            this._prevMouse = {{ x: e.touches[0].clientX, y: e.touches[0].clientY }};
+          }} else if (e.touches.length === 2) {{
+            _t0 = e.touches[0]; _t1 = e.touches[1];
+            _tDist = Math.hypot(_t1.clientX-_t0.clientX, _t1.clientY-_t0.clientY);
+          }}
+          e.preventDefault();
+        }}, {{ passive: false }});
+        domElement.addEventListener('touchmove', e => {{
+          if (e.touches.length === 1 && this._isDragging) {{
+            const dx2 = e.touches[0].clientX - this._prevMouse.x;
+            const dy2 = e.touches[0].clientY - this._prevMouse.y;
+            this.azimuth -= dx2 * 0.008 * this.rotateSpeed;
+            this.elevation += dy2 * 0.008 * this.rotateSpeed;
+            this.elevation = Math.max(0.05, Math.min(Math.PI / 2 - 0.01, this.elevation));
+            this._prevMouse = {{ x: e.touches[0].clientX, y: e.touches[0].clientY }};
+            this._applyCamera();
+          }} else if (e.touches.length === 2) {{
+            const newDist = Math.hypot(e.touches[1].clientX-e.touches[0].clientX, e.touches[1].clientY-e.touches[0].clientY);
+            this.radius *= (_tDist / newDist);
+            this.radius = Math.max(10, Math.min(2000, this.radius));
+            _tDist = newDist;
+            this._applyCamera();
+          }}
+          e.preventDefault();
+        }}, {{ passive: false }});
+        domElement.addEventListener('touchend', () => {{ this._isDragging = false; }});
+
+        this._applyCamera();
       }}
-      
-      onMouseDown(e) {{ this.isDragging = true; this.previousMousePosition = {{ x: e.clientX, y: e.clientY }}; }}
-      onMouseMove(e) {{
-        if (!this.isDragging) return;
-        const deltaMove = {{ x: e.clientX - this.previousMousePosition.x, y: e.clientY - this.previousMousePosition.y }};
-        this.spherical.theta -= deltaMove.x * 0.01 * this.rotateSpeed;
-        this.spherical.phi -= deltaMove.y * 0.01 * this.rotateSpeed;
-        this.spherical.phi = Math.max(0.01, Math.min(Math.PI / 2 - 0.01, this.spherical.phi));
-        this.previousMousePosition = {{ x: e.clientX, y: e.clientY }};
-        this.updateCamera();
-      }}
-      onMouseUp() {{ this.isDragging = false; }}
-      onMouseWheel(e) {{
-        e.preventDefault();
-        this.spherical.radius *= (e.deltaY > 0 ? this.zoomSpeed : 1 / this.zoomSpeed);
-        this.spherical.radius = Math.max(10, Math.min(2000, this.spherical.radius));
-        this.updateCamera();
-      }}
-      updateCamera() {{
-        this.camera.position.setFromSpherical(this.spherical).add(this.target);
+
+      _applyCamera() {{
+        // Convert spherical (azimuth, elevation) with Z-up into Cartesian
+        const cosEl = Math.cos(this.elevation);
+        this.camera.position.set(
+          this.target.x + this.radius * cosEl * Math.cos(this.azimuth),
+          this.target.y + this.radius * cosEl * Math.sin(this.azimuth),
+          this.target.z + this.radius * Math.sin(this.elevation)
+        );
+        this.camera.up.set(0, 0, 1);
         this.camera.lookAt(this.target);
       }}
+
       update() {{
         if (this.autoRotate) {{
-          this.spherical.theta -= 0.005 * this.autoRotateSpeed;
-          this.updateCamera();
+          this.azimuth -= 0.004 * this.autoRotateSpeed;
+          this._applyCamera();
         }}
       }}
     }}
