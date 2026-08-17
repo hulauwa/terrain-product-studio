@@ -762,7 +762,7 @@ def generate_3d_web_viewer(
         const suitVal = SUIT ? `Class ${{SUIT[cv][cu]}}` : "--";
         const hazVal = HAZARD ? `Class ${{HAZARD[cv][cu]}}` : "--";
 
-        document.getElementById("insp-z").textContent = `${{Math.round(zVal):,d}} m`;
+        document.getElementById("insp-z").textContent = `${{Math.round(zVal).toLocaleString()}} m`;
         document.getElementById("insp-slope").textContent = typeof sVal === 'number' ? `${{sVal.toFixed(1)}}°` : '--';
         document.getElementById("insp-twi").textContent = typeof twiVal === 'number' ? twiVal.toFixed(1) : twiVal;
         document.getElementById("insp-suit").textContent = suitVal;
@@ -897,7 +897,7 @@ def generate_3d_web_viewer(
       if (layer === "topo") {{
         title.textContent = "Elevation (m)";
         bar.style.background = "linear-gradient(to right, #2b83ba, #abdda4, #ffffbf, #fdae61, #d7191c)";
-        min.textContent = `${{int(min_z)}}m`; max.textContent = `${{int(max_z)}}m`;
+        min.textContent = "{int(min_z)}m"; max.textContent = "{int(max_z)}m";
       }} else if (layer === "slope") {{
         title.textContent = "Slope Gradient (Degrees)";
         bar.style.background = "linear-gradient(to right, #2ca25f, #fee08b, #fd8d3c, #e31a1c)";
