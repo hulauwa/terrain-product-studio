@@ -1,0 +1,25 @@
+# Changelog
+
+## 1.0.0 — 2026-08-17
+
+- **QGIS Publishing Compliance**: License updated to GNU GPL v2.0-or-later; updated `metadata.txt` with required author, email, repository, homepage, and tracker fields.
+- **USGS Authentic Cartography**: Implemented authentic USGS Topographic map specifications for 3-tier contours (minor 0.12mm, index 0.30mm, master 0.48mm), italic labels with clean background halos, and USGS hydro blue (`#0070c0`).
+- **New Terrain Layer Products**: Added Spot Elevation Peak Markers (triangle markers with peak heights), Profile Curvature (flow acceleration), Planform Curvature (flow convergence), and Ridgeline network extraction.
+- **Layer Stacking Fix**: Reordered QGIS Layer Panel groups so vector layers (hydrology, contours, peaks) render on top of raster hillshade and elevation basemaps.
+- **Internationalization (i18n)**: English default UI across all dialogs, tabs, and processing algorithm descriptions; added Qt translation system (`i18n/terrain_product_studio_vi.ts`) for seamless Vietnamese localization based on QGIS application locale.
+- **Clean Packaging**: Added `scripts/package_plugin.py` to create lightweight releases under 25 MB.
+
+## 0.1.1 — 2026-08-16
+
+- Fixed opening the dock on QGIS 4 / Qt 6 by supporting scoped Qt enums.
+- Verified the complete GUI lifecycle in `QGIS-master-026d9cd.app` (4.3.0-Master).
+- Verified installation from ZIP in a clean QGIS profile.
+
+## 0.1.0 — 2026-08-16
+
+- Initial QGIS Processing Provider and dock interface.
+- DEM inspection with statistics, NoData and CRS warnings.
+- Automatic local UTM working raster for geographic DEMs.
+- Color relief, standard/multidirectional hillshade, slope, aspect, TRI, TPI, roughness and contours.
+- Automatic layer groups, hillshade blending, analytical color ramps and minor/index contour styling.
+- Non-overwriting file output and JSON processing report.

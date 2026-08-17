@@ -1,0 +1,18 @@
+[general]
+name=Terrain Product Studio
+description=Create USGS-styled terrain basemaps, contours, spot elevations and geomorphometric products from a DEM.
+about=Terrain Product Studio turns one elevation raster into a consistent package of publication-ready cartographic and analytical terrain layers. It includes DEM inspection, safe projected processing, elevation color relief, standard and multidirectional hillshade, slope, aspect, TRI, TPI, roughness, profile/planform curvature, spot elevation peak markers, ridge/valley networks and 3-tier styled contours.
+version=1.0.0
+qgisMinimumVersion=3.34
+author=Nguyễn Văn Tín
+email=nguyenvantinvfu@gmail.com
+repository=https://github.com/hulauwa/terrain-product-studio
+homepage=https://github.com/hulauwa/terrain-product-studio#readme
+tracker=https://github.com/hulauwa/terrain-product-studio/issues
+category=Raster
+icon=icons/terrain_studio.svg
+experimental=True
+deprecated=False
+hasProcessingProvider=yes
+tags=DEM,DTM,terrain,hillshade,slope,aspect,contour,relief,TPI,TRI,roughness,hydrology,curvature,peaks
+license=GPLv2

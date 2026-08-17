@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.qm
+dist/
+tss/
+.DS_Store
+.idea/
+.vscode/
+*.egg-info/
