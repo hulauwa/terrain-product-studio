@@ -21,7 +21,7 @@ def _resample_band(path: str | None, gw: int, gh: int, nodata_fill: float = 0.0)
     if not path or not os.path.exists(path):
         return None
     try:
-        ds = gdal.Open(path, gdal.GA_ReadOnly)
+        ds = gdal.Open(str(path), gdal.GA_ReadOnly)
         if ds is None:
             return None
         band = ds.GetRasterBand(1)
@@ -31,10 +31,30 @@ def _resample_band(path: str | None, gw: int, gh: int, nodata_fill: float = 0.0)
         if nodata is not None and math.isfinite(float(nodata)):
             valid &= data != float(nodata)
         clean = np.where(valid, data, nodata_fill)
+        clean = np.nan_to_num(clean, nan=nodata_fill, posinf=nodata_fill, neginf=nodata_fill)
         ds = None
         return clean.round(2).tolist()
     except Exception:
         return None
+
+
+def _extract_linestring_pts(geom, bounds_x, bounds_y, dx, dy) -> list[list[list[float]]]:
+    if geom is None:
+        return []
+    count = geom.GetGeometryCount()
+    if count > 0:
+        res = []
+        for i in range(count):
+            res.extend(_extract_linestring_pts(geom.GetGeometryRef(i), bounds_x, bounds_y, dx, dy))
+        return res
+    pts = []
+    pcount = geom.GetPointCount()
+    for i in range(pcount):
+        gx, gy = geom.GetX(i), geom.GetY(i)
+        nx = ((gx - bounds_x[0]) / dx - 0.5) * 100.0
+        ny = ((gy - bounds_y[0]) / dy - 0.5) * 100.0
+        pts.append([round(nx, 2), round(ny, 2)])
+    return [pts] if len(pts) >= 2 else []
 
 
 def generate_3d_web_viewer(
@@ -51,7 +71,8 @@ def generate_3d_web_viewer(
     grid_size: int = 180,
 ) -> str:
     """Generate a self-contained 3D WebGIS Studio HTML file with multi-layer overlays and comprehensive analytical tools."""
-    ds = gdal.Open(dem_path, gdal.GA_ReadOnly)
+    clean_path = str(dem_path).split("|")[0].strip('"').strip("'")
+    ds = gdal.Open(clean_path, gdal.GA_ReadOnly)
     if ds is None:
         raise RuntimeError(f"Could not open DEM for 3D viewer: {dem_path}")
 
@@ -76,6 +97,7 @@ def generate_3d_web_viewer(
         max_z = min_z + 1.0
 
     clean_elev = np.where(valid, dem_data, min_z)
+    clean_elev = np.nan_to_num(clean_elev, nan=min_z, posinf=max_z, neginf=min_z)
     elev_grid = clean_elev.round(1).tolist()
 
     # Resample thematic layers to identical grid
@@ -119,27 +141,22 @@ def generate_3d_web_viewer(
     except Exception:
         pass
 
-    # Extract 3D Streams
+    # Extract 3D Streams (supports LineString, MultiLineString, 2.5D)
     rivers_3d = []
     if stream_vector_path and os.path.exists(stream_vector_path):
         try:
-            v_ds = ogr.Open(stream_vector_path)
+            v_ds = ogr.Open(str(stream_vector_path))
             if v_ds is not None:
                 layer = v_ds.GetLayer(0)
                 for feat in layer:
                     geom = feat.GetGeometryRef()
                     if geom is None:
                         continue
-                    pts = []
-                    for i in range(geom.GetPointCount()):
-                        gx, gy = geom.GetX(i), geom.GetY(i)
-                        nx = ((gx - bounds_x[0]) / dx - 0.5) * 100.0
-                        ny = ((gy - bounds_y[0]) / dy - 0.5) * 100.0
-                        pts.append([round(nx, 2), round(ny, 2)])
-                    if len(pts) >= 2:
-                        order_val = feat.GetField("ORDER") if feat.GetFieldIndex("ORDER") >= 0 else 1
-                        name_val = feat.GetField("ORDER_NAME") if feat.GetFieldIndex("ORDER_NAME") >= 0 else f"Order {order_val}"
-                        length_m = feat.GetField("LENGTH_M") if feat.GetFieldIndex("LENGTH_M") >= 0 else 0.0
+                    multi_pts = _extract_linestring_pts(geom, bounds_x, bounds_y, dx, dy)
+                    order_val = feat.GetField("ORDER") if feat.GetFieldIndex("ORDER") >= 0 else 1
+                    name_val = feat.GetField("ORDER_NAME") if feat.GetFieldIndex("ORDER_NAME") >= 0 else f"Order {order_val}"
+                    length_m = feat.GetField("LENGTH_M") if feat.GetFieldIndex("LENGTH_M") >= 0 else 0.0
+                    for pts in multi_pts:
                         rivers_3d.append({
                             "order": int(order_val or 1),
                             "name": str(name_val or ""),
@@ -150,26 +167,21 @@ def generate_3d_web_viewer(
         except Exception:
             pass
 
-    # Extract 3D Contours
+    # Extract 3D Contours (supports LineString, MultiLineString, 2.5D)
     contours_3d = []
     if contour_vector_path and os.path.exists(contour_vector_path):
         try:
-            c_ds = ogr.Open(contour_vector_path)
+            c_ds = ogr.Open(str(contour_vector_path))
             if c_ds is not None:
                 c_layer = c_ds.GetLayer(0)
                 for feat in c_layer:
                     geom = feat.GetGeometryRef()
                     if geom is None:
                         continue
-                    pts = []
-                    for i in range(geom.GetPointCount()):
-                        gx, gy = geom.GetX(i), geom.GetY(i)
-                        nx = ((gx - bounds_x[0]) / dx - 0.5) * 100.0
-                        ny = ((gy - bounds_y[0]) / dy - 0.5) * 100.0
-                        pts.append([round(nx, 2), round(ny, 2)])
-                    if len(pts) >= 2:
-                        elev_val = feat.GetField("ELEV") if feat.GetFieldIndex("ELEV") >= 0 else 0.0
-                        is_index = feat.GetField("IS_INDEX") if feat.GetFieldIndex("IS_INDEX") >= 0 else 0
+                    multi_pts = _extract_linestring_pts(geom, bounds_x, bounds_y, dx, dy)
+                    elev_val = feat.GetField("ELEV") if feat.GetFieldIndex("ELEV") >= 0 else 0.0
+                    is_index = feat.GetField("IS_INDEX") if feat.GetFieldIndex("IS_INDEX") >= 0 else 0
+                    for pts in multi_pts:
                         contours_3d.append({
                             "elev": round(float(elev_val or 0.0), 1),
                             "is_index": bool(is_index),
@@ -183,7 +195,7 @@ def generate_3d_web_viewer(
     peaks_3d = []
     if spot_peaks_path and os.path.exists(spot_peaks_path):
         try:
-            p_ds = ogr.Open(spot_peaks_path)
+            p_ds = ogr.Open(str(spot_peaks_path))
             if p_ds is not None:
                 p_layer = p_ds.GetLayer(0)
                 for feat in p_layer:

@@ -130,7 +130,17 @@ def create_terrain_layout(
     layout.initializeDefaults()
     layout.setName(_unique_layout_name(manager, layout_name))
 
-    landscape = preset["orientation"] == "landscape"
+    reference = _reference_layer(layers)
+    if reference is None:
+        raise ValueError("No valid generated terrain layer is available for the layout.")
+
+    extent = QgsRectangle(reference.extent())
+    bbox_w = max(1e-3, extent.width())
+    bbox_h = max(1e-3, extent.height())
+    bbox_aspect = bbox_w / bbox_h
+
+    # Dynamically select orientation and dimensions based on bounding box
+    landscape = bbox_aspect >= 0.95
     page_width, page_height = (297.0, 210.0) if landscape else (210.0, 297.0)
     page = layout.pageCollection().page(0)
     page.setPageSize(
@@ -147,18 +157,37 @@ def create_terrain_layout(
     )
 
     if landscape:
-        map_box = (14.0, 31.0, 218.0, 153.0)
-        legend_box = (239.0, 52.0, 44.0, 97.0)
-        north_box = (252.0, 31.0, 18.0, 18.0)
-        scale_box = (240.0, 154.0, 42.0, 12.0)
-        meta_box = (239.0, 169.0, 44.0, 15.0)
+        avail_w, avail_h = 218.0, 160.0
+        # Adapt map size to bbox aspect ratio without distortion
+        if bbox_aspect >= (avail_w / avail_h):
+            mw = avail_w
+            mh = min(avail_h, mw / bbox_aspect)
+        else:
+            mh = avail_h
+            mw = min(avail_w, mh * bbox_aspect)
+        mx = 14.0 + (avail_w - mw) / 2.0
+        my = 30.0 + (avail_h - mh) / 2.0
+        map_box = (mx, my, mw, mh)
+        legend_box = (239.0, 52.0, 46.0, 95.0)
+        north_box = (252.0, 30.0, 18.0, 18.0)
+        scale_box = (240.0, 152.0, 44.0, 12.0)
+        meta_box = (239.0, 167.0, 46.0, 24.0)
         title_width = 269.0
     else:
-        map_box = (13.0, 33.0, 184.0, 188.0)
-        legend_box = (13.0, 230.0, 88.0, 45.0)
-        north_box = (171.0, 229.0, 18.0, 18.0)
-        scale_box = (111.0, 252.0, 78.0, 12.0)
-        meta_box = (111.0, 267.0, 78.0, 10.0)
+        avail_w, avail_h = 184.0, 188.0
+        if bbox_aspect >= (avail_w / avail_h):
+            mw = avail_w
+            mh = min(avail_h, mw / bbox_aspect)
+        else:
+            mh = avail_h
+            mw = min(avail_w, mh * bbox_aspect)
+        mx = 13.0 + (avail_w - mw) / 2.0
+        my = 32.0 + (avail_h - mh) / 2.0
+        map_box = (mx, my, mw, mh)
+        legend_box = (13.0, 226.0, 88.0, 52.0)
+        north_box = (174.0, 226.0, 18.0, 18.0)
+        scale_box = (111.0, 248.0, 80.0, 12.0)
+        meta_box = (111.0, 263.0, 80.0, 18.0)
         title_width = 184.0
 
     _add_label(
@@ -184,10 +213,6 @@ def create_terrain_layout(
         9.0,
         preset["muted_ink"],
     )
-
-    reference = _reference_layer(layers)
-    if reference is None:
-        raise ValueError("No valid generated terrain layer is available for the layout.")
 
     map_item = QgsLayoutItemMap(layout)
     layout.addLayoutItem(map_item)

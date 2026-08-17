@@ -441,38 +441,94 @@ class TerrainStudioDock(QDockWidget):
 
     def _open_3d_map(self):
         path = getattr(self, "_last_3d_path", None)
+        folder = self.output_edit.text().strip()
+        prefix = sanitize_prefix(self.prefix_edit.text())
+
         if not path or not os.path.exists(path):
-            folder = self.output_edit.text().strip()
-            prefix = sanitize_prefix(self.prefix_edit.text())
             candidate = os.path.join(folder, f"{prefix}_interactive_3d_terrain.html")
             if os.path.exists(candidate):
                 path = candidate
                 self._last_3d_path = candidate
+            elif os.path.isdir(folder):
+                for f in os.listdir(folder):
+                    if f.endswith(".html") and "3d" in f.lower():
+                        candidate = os.path.join(folder, f)
+                        path = candidate
+                        self._last_3d_path = candidate
+                        break
+
         if path and os.path.exists(path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
         else:
+            layer = self.dem_combo.currentLayer()
+            if layer and layer.isValid():
+                os.makedirs(folder, exist_ok=True)
+                v3d_target = os.path.join(folder, f"{prefix}_interactive_3d_terrain.html")
+                try:
+                    dem_path = layer.source().split("|")[0]
+                    generate_3d_web_viewer(
+                        dem_path=dem_path,
+                        output_html_path=v3d_target,
+                        title=f"{prefix.title()} 3D Interactive WebGIS Studio",
+                    )
+                    if os.path.exists(v3d_target):
+                        self._last_3d_path = v3d_target
+                        QDesktopServices.openUrl(QUrl.fromLocalFile(v3d_target))
+                        return
+                except Exception as err:
+                    QMessageBox.warning(self, self.tr("3D Map Generation"), f"Could not generate 3D Map: {err}")
+                    return
+
             QMessageBox.information(
                 self,
                 self.tr("3D Interactive Map"),
-                self.tr("No 3D Map HTML file has been generated yet. Please run the product package with 'Interactive 3D Web Terrain Viewer' checked."),
+                self.tr("No 3D Map HTML file has been generated yet. Please select a DEM layer and run the package with 'Interactive 3D Web Terrain Viewer' checked."),
             )
 
     def _open_report(self):
         path = getattr(self, "_last_report_html_path", None)
+        folder = self.output_edit.text().strip()
+        prefix = sanitize_prefix(self.prefix_edit.text())
+
         if not path or not os.path.exists(path):
-            folder = self.output_edit.text().strip()
-            prefix = sanitize_prefix(self.prefix_edit.text())
             candidate = os.path.join(folder, f"{prefix}_topographic_intelligence_report.html")
             if os.path.exists(candidate):
                 path = candidate
                 self._last_report_html_path = candidate
+            elif os.path.isdir(folder):
+                for f in os.listdir(folder):
+                    if f.endswith(".html") and "report" in f.lower():
+                        candidate = os.path.join(folder, f)
+                        path = candidate
+                        self._last_report_html_path = candidate
+                        break
+
         if path and os.path.exists(path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
         else:
+            layer = self.dem_combo.currentLayer()
+            if layer and layer.isValid():
+                os.makedirs(folder, exist_ok=True)
+                intel_target = os.path.join(folder, f"{prefix}_topographic_intelligence_report.html")
+                try:
+                    dem_path = layer.source().split("|")[0]
+                    generate_intelligence_report(
+                        dem_path=dem_path,
+                        output_html_path=intel_target,
+                        title=f"{prefix.title()} Topographic Intelligence Report",
+                    )
+                    if os.path.exists(intel_target):
+                        self._last_report_html_path = intel_target
+                        QDesktopServices.openUrl(QUrl.fromLocalFile(intel_target))
+                        return
+                except Exception as err:
+                    QMessageBox.warning(self, self.tr("Intelligence Report"), f"Could not generate Report: {err}")
+                    return
+
             QMessageBox.information(
                 self,
                 self.tr("Intelligence Report"),
-                self.tr("No Topographic Intelligence Report has been generated yet. Please run the product package with 'Topographic Intelligence Report' checked."),
+                self.tr("No Topographic Intelligence Report has been generated yet. Please select a DEM layer and run the package with 'Topographic Intelligence Report' checked."),
             )
 
     def _on_layer_changed(self, layer):
