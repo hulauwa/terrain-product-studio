@@ -570,13 +570,12 @@ class TerrainStudioDock(QDockWidget):
             self.feedback.cancel()
 
     def _task_finished(self, successful, results):
-        self.run_button.setEnabled(True)
-        self.cancel_button.setEnabled(False)
-        self.progress.setValue(100 if successful else 0)
-        self._last_results = results
         self.task = None
 
         if not successful:
+            self.run_button.setEnabled(True)
+            self.cancel_button.setEnabled(False)
+            self.progress.setValue(0)
             self.report_edit.appendPlainText(
                 f"\n{self.tr('Task failed. Check View → Panels → Log Messages → Processing for details.')}"
             )
@@ -586,9 +585,47 @@ class TerrainStudioDock(QDockWidget):
             return
 
         config = self._run_config or self._cartography_config()
+
+        # Phase 1 finished: if hydrology is requested, launch phase 2 algorithm
+        if self._phase == "terrain" and config.get("create_hydrology"):
+            self._terrain_results = dict(results)
+            hydrology_alg = QgsApplication.processingRegistry().algorithmById("terrainstudio:buildhydrology")
+            if hydrology_alg is not None:
+                self._phase = "hydrology"
+                working_input = results.get("WORKING_DEM") or self.dem_combo.currentLayer()
+                hydro_params = {
+                    "INPUT": working_input,
+                    "BAND": self.band_spin.value(),
+                    "OUTPUT_FOLDER": self.output_edit.text().strip(),
+                    "PREFIX": sanitize_prefix(self.prefix_edit.text()),
+                    "Z_UNIT": self.z_unit_combo.currentIndex(),
+                    "STREAM_THRESHOLD_HA": self.stream_threshold.value(),
+                    "CREATE_BASINS": self.basins_check.isChecked(),
+                }
+                self.feedback = QgsProcessingFeedback()
+                self.feedback.progressChanged.connect(lambda val: self.progress.setValue(int(val)))
+                self.task = QgsProcessingAlgRunnerTask(hydrology_alg, hydro_params, self.context, self.feedback)
+                self.task.executed.connect(self._task_finished)
+                self.run_button.setEnabled(False)
+                self.cancel_button.setEnabled(True)
+                self.report_edit.appendPlainText(f"\n{self.tr('Extracting hydrology & river network…')}")
+                QgsApplication.taskManager().addTask(self.task)
+                return
+
+        # Merge results if hydrology ran after terrain
+        final_results = dict(results)
+        if self._terrain_results:
+            final_results.update(self._terrain_results)
+            self._terrain_results = None
+
+        self.run_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
+        self.progress.setValue(100)
+        self._last_results = final_results
+
         unit = "m" if self.z_unit_combo.currentIndex() == 0 else "ft"
         loaded, failed, layers = add_terrain_results(
-            results,
+            final_results,
             self.contour_interval.value(),
             self.index_multiplier.value(),
             unit,
@@ -596,7 +633,7 @@ class TerrainStudioDock(QDockWidget):
             config["font_family"],
             return_layers=True,
         )
-        report_path = str(results.get("REPORT", ""))
+        report_path = str(final_results.get("REPORT", ""))
         self.report_edit.appendPlainText(
             f"\n{self.tr('Finished. Loaded')} {loaded} {self.tr('layers into project.')}\n{self.tr('Report')}: {report_path}"
         )

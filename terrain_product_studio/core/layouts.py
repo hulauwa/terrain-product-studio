@@ -190,21 +190,6 @@ def create_terrain_layout(
         raise ValueError("No valid generated terrain layer is available for the layout.")
 
     map_item = QgsLayoutItemMap(layout)
-    map_item.setFrameEnabled(True)
-    map_item.setFrameStrokeColor(QColor(preset["ink"]))
-    map_item.setFrameStrokeWidth(
-        QgsLayoutMeasurement(0.55, Qgis.LayoutUnit.Millimeters)
-    )
-    map_item.setBackgroundColor(QColor(preset["paper"]))
-    map_item.setCrs(reference.crs())
-    extent = QgsRectangle(reference.extent())
-    extent.scale(1.035)
-    map_item.setExtent(extent)
-    map_layers = _map_layers(layers)
-    if map_layers:
-        map_item.setLayers(map_layers)
-        map_item.setKeepLayerSet(True)
-        map_item.setKeepLayerStyles(True)
     layout.addLayoutItem(map_item)
     map_item.attemptMove(
         QgsLayoutPoint(map_box[0], map_box[1], Qgis.LayoutUnit.Millimeters)
@@ -212,6 +197,25 @@ def create_terrain_layout(
     map_item.attemptResize(
         QgsLayoutSize(map_box[2], map_box[3], Qgis.LayoutUnit.Millimeters)
     )
+    map_item.setFrameEnabled(True)
+    map_item.setFrameStrokeColor(QColor(preset["ink"]))
+    map_item.setFrameStrokeWidth(
+        QgsLayoutMeasurement(0.55, Qgis.LayoutUnit.Millimeters)
+    )
+    map_item.setBackgroundColor(QColor(preset["paper"]))
+    map_item.setCrs(reference.crs())
+
+    extent = QgsRectangle(reference.extent())
+    extent.scale(1.035)
+    map_item.setExtent(extent)
+
+    map_layers = _map_layers(layers)
+    if map_layers:
+        map_item.setLayers(map_layers)
+        map_item.setKeepLayerSet(True)
+        map_item.setKeepLayerStyles(True)
+
+    map_item.refresh()
     layout.setReferenceMap(map_item)
 
     if config.get("grid", True):
