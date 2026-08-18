@@ -40,7 +40,13 @@ from ..core import plugin_version
 from ..core.qgis_compat import all_raster_statistics_flag
 from ..core.smoothing import smooth_geometries
 from ..core.spot_elevations import extract_spot_elevations
-from ..core.thematic_terrain import calculate_landslide_hazard, calculate_slope_suitability
+from ..core.geomorphon import classify_geomorphon
+from ..core.thematic_terrain import (
+    calculate_landslide_hazard,
+    calculate_slope_suitability,
+    calculate_spi,
+    calculate_sti,
+)
 from ..core.web_3d_viewer import generate_3d_web_viewer
 
 
@@ -88,12 +94,18 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     CREATE_SPOT_ELEVATIONS = "CREATE_SPOT_ELEVATIONS"
     CREATE_SUITABILITY = "CREATE_SUITABILITY"
     CREATE_LANDSLIDE = "CREATE_LANDSLIDE"
+    CREATE_GEOMORPHON = "CREATE_GEOMORPHON"
+    CREATE_SPI = "CREATE_SPI"
+    CREATE_STI = "CREATE_STI"
     CREATE_3D_VIEWER = "CREATE_3D_VIEWER"
     CREATE_INTELLIGENCE_REPORT = "CREATE_INTELLIGENCE_REPORT"
     CONTOUR_INTERVAL = "CONTOUR_INTERVAL"
     INDEX_MULTIPLIER = "INDEX_MULTIPLIER"
     SMOOTHING = "SMOOTHING"
     SIMPLIFY_TOLERANCE = "SIMPLIFY_TOLERANCE"
+    ACCUMULATION = "ACCUMULATION"
+    GEOMORPHON_RADIUS_M = "GEOMORPHON_RADIUS_M"
+    GEOMORPHON_TOLERANCE = "GEOMORPHON_TOLERANCE"
 
     WORKING_DEM = "WORKING_DEM"
     COLOR_RELIEF = "COLOR_RELIEF"
@@ -112,6 +124,9 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     SUITABILITY = "SUITABILITY"
     LANDSLIDE_HAZARD = "LANDSLIDE_HAZARD"
     LS_FACTOR = "LS_FACTOR"
+    GEOMORPHON = "GEOMORPHON"
+    SPI = "SPI"
+    STI = "STI"
     VIEWER_3D = "VIEWER_3D"
     INTELLIGENCE_REPORT = "INTELLIGENCE_REPORT"
     REPORT = "REPORT"
@@ -255,12 +270,45 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             (self.CREATE_SPOT_ELEVATIONS, self.tr("Spot elevation peaks"), True),
             (self.CREATE_SUITABILITY, self.tr("Slope construction suitability"), True),
             (self.CREATE_LANDSLIDE, self.tr("Landslide hazard & RUSLE LS factor"), True),
+            (self.CREATE_GEOMORPHON, self.tr("Geomorphon terrain forms (10 classes)"), True),
+            (self.CREATE_SPI, self.tr("Stream Power Index (SPI)"), True),
+            (self.CREATE_STI, self.tr("Sediment Transport Index (STI)"), True),
             (self.CREATE_3D_VIEWER, self.tr("Interactive 3D Web Terrain Viewer (HTML)"), True),
             (self.CREATE_INTELLIGENCE_REPORT, self.tr("Topographic Intelligence Report (HTML)"), True),
         )
         for name, label, default in products:
             self.addParameter(QgsProcessingParameterBoolean(name, label, defaultValue=default))
 
+        self.addParameter(
+            QgsProcessingParameterRasterLayer(
+                self.ACCUMULATION,
+                self.tr(
+                    "Flow accumulation raster (optional — makes SPI/STI and "
+                    "landslide hazard use real drainage, not the slope proxy)"
+                ),
+                optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.GEOMORPHON_RADIUS_M,
+                self.tr("Geomorphon search radius (m)"),
+                type=_number_type_double(),
+                minValue=1.0,
+                maxValue=100000.0,
+                defaultValue=100.0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.GEOMORPHON_TOLERANCE,
+                self.tr("Geomorphon flatness tolerance (fraction of relief)"),
+                type=_number_type_double(),
+                minValue=0.0001,
+                maxValue=1.0,
+                defaultValue=0.01,
+            )
+        )
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.CONTOUR_INTERVAL,
@@ -321,6 +369,9 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         self.addOutput(QgsProcessingOutputRasterLayer(self.SUITABILITY, self.tr("Slope construction suitability")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.LANDSLIDE_HAZARD, self.tr("Landslide hazard risk")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.LS_FACTOR, self.tr("RUSLE LS factor")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.GEOMORPHON, self.tr("Geomorphon terrain forms")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.SPI, self.tr("Stream Power Index (SPI)")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.STI, self.tr("Sediment Transport Index (STI)")))
         self.addOutput(QgsProcessingOutputFile(self.VIEWER_3D, self.tr("Interactive 3D Web Viewer")))
         self.addOutput(QgsProcessingOutputFile(self.INTELLIGENCE_REPORT, self.tr("Topographic Intelligence Report")))
         self.addOutput(QgsProcessingOutputFile(self.REPORT, self.tr("Processing report")))
@@ -399,6 +450,15 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         zevenbergen = self.parameterAsBool(parameters, self.ZEVENBERGEN, context)
         contour_interval = self.parameterAsDouble(parameters, self.CONTOUR_INTERVAL, context)
         index_multiplier = self.parameterAsInt(parameters, self.INDEX_MULTIPLIER, context)
+        geomorphon_radius_m = self.parameterAsDouble(parameters, self.GEOMORPHON_RADIUS_M, context)
+        geomorphon_tolerance = self.parameterAsDouble(parameters, self.GEOMORPHON_TOLERANCE, context)
+        accumulation_input = None
+        accumulation_layer = self.parameterAsRasterLayer(parameters, self.ACCUMULATION, context)
+        if accumulation_layer is not None and accumulation_layer.isValid():
+            try:
+                accumulation_input = accumulation_layer.source().split("|")[0]
+            except (AttributeError, ValueError):
+                accumulation_input = None
 
         if source is None or not source.isValid():
             raise QgsProcessingException(self.tr("Input DEM is missing or invalid."))
@@ -437,17 +497,32 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             self.SPOT_ELEVATIONS: self.parameterAsBool(parameters, self.CREATE_SPOT_ELEVATIONS, context),
             self.SUITABILITY: self.parameterAsBool(parameters, self.CREATE_SUITABILITY, context),
             self.LANDSLIDE_HAZARD: self.parameterAsBool(parameters, self.CREATE_LANDSLIDE, context),
+            self.GEOMORPHON: self.parameterAsBool(parameters, self.CREATE_GEOMORPHON, context),
+            self.SPI: self.parameterAsBool(parameters, self.CREATE_SPI, context),
+            self.STI: self.parameterAsBool(parameters, self.CREATE_STI, context),
             self.VIEWER_3D: self.parameterAsBool(parameters, self.CREATE_3D_VIEWER, context),
             self.INTELLIGENCE_REPORT: self.parameterAsBool(parameters, self.CREATE_INTELLIGENCE_REPORT, context),
         }
         if not any(selected.values()):
             raise QgsProcessingException(self.tr("Select at least one terrain product."))
 
+        needs_accumulation = (
+            selected[self.LANDSLIDE_HAZARD] or selected[self.SPI] or selected[self.STI]
+        )
+
         step_count = sum(selected.values()) + 2
         multi = QgsProcessingMultiStepFeedback(step_count, feedback)
         current_step = 0
         outputs = {self.OUTPUT_FOLDER: folder}
         warnings = []
+
+        if needs_accumulation and not accumulation_input:
+            warnings.append(
+                "Landslide hazard, SPI and STI use slope as a stand-in for flow "
+                "accumulation because no accumulation raster was provided. Run the "
+                "hydrology algorithm first and pass its flow accumulation output for "
+                "hydrologically correct values."
+            )
 
         source_info = inspect_dem_layer(source, band, sum(selected.values()))
         warnings.extend(source_info["warnings"])
@@ -764,7 +839,10 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 ls_path = self._output_path(folder, prefix, "rusle_ls_factor", "tif")
                 multi.pushInfo(self.tr("Calculating landslide hazard and RUSLE LS factor…"))
                 try:
-                    calculate_landslide_hazard(outputs[self.SLOPE], outputs[self.SLOPE], hazard_path, ls_path)
+                    # Real flow accumulation when supplied, otherwise the slope
+                    # raster stands in as a flow-convergence proxy.
+                    accumulation_source = accumulation_input or outputs[self.SLOPE]
+                    calculate_landslide_hazard(outputs[self.SLOPE], accumulation_source, hazard_path, ls_path)
                     if os.path.exists(hazard_path):
                         outputs[self.LANDSLIDE_HAZARD] = hazard_path
                     if os.path.exists(ls_path):
@@ -773,6 +851,53 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                     warnings.append(f"Landslide hazard notice: {err}")
 
         working_dem_path = working_dem if isinstance(working_dem, str) else source.source().split("|")[0]
+
+        # Geomorphon Terrain Forms
+        if selected[self.GEOMORPHON]:
+            if not multi.isCanceled():
+                multi.setCurrentStep(current_step)
+                current_step += 1
+                geomorphon_path = self._output_path(folder, prefix, "geomorphon", "tif")
+                multi.pushInfo(self.tr("Classifying 10 geomorphon terrain forms…"))
+                try:
+                    geomorphon_stats = classify_geomorphon(
+                        working_dem_path,
+                        geomorphon_path,
+                        radius_m=geomorphon_radius_m,
+                        tolerance=geomorphon_tolerance,
+                    )
+                    if os.path.exists(geomorphon_path):
+                        outputs[self.GEOMORPHON] = geomorphon_path
+                        dominant = ", ".join(
+                            f"{name} {pct:.0f}%"
+                            for name, pct in sorted(
+                                geomorphon_stats.items(),
+                                key=lambda item: item[1],
+                                reverse=True,
+                            )[:3]
+                        )
+                        multi.pushInfo(self.tr(f"Geomorphon dominant forms: {dominant}"))
+                except Exception as err:
+                    warnings.append(f"Geomorphon notice: {err}")
+
+        # Stream Power Index (SPI) & Sediment Transport Index (STI)
+        accumulation_source = accumulation_input or outputs.get(self.SLOPE)
+        for output_key, calculator, suffix, label in (
+            (self.SPI, calculate_spi, "stream_power_index", "SPI"),
+            (self.STI, calculate_sti, "sediment_transport_index", "STI"),
+        ):
+            if selected[output_key] and accumulation_source:
+                if not multi.isCanceled():
+                    multi.setCurrentStep(current_step)
+                    current_step += 1
+                    index_path = self._output_path(folder, prefix, suffix, "tif")
+                    multi.pushInfo(self.tr(f"Calculating {label}…"))
+                    try:
+                        calculator(accumulation_source, outputs[self.SLOPE], index_path)
+                        if os.path.exists(index_path):
+                            outputs[output_key] = index_path
+                    except Exception as err:
+                        warnings.append(f"{label} notice: {err}")
 
         # 3D Interactive Web Viewer
         if selected[self.VIEWER_3D]:
@@ -813,6 +938,9 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                         aspect_path=outputs.get(self.ASPECT),
                         suitability_path=outputs.get(self.SUITABILITY),
                         hazard_path=outputs.get(self.LANDSLIDE_HAZARD),
+                        geomorphon_path=outputs.get(self.GEOMORPHON),
+                        spi_path=outputs.get(self.SPI),
+                        sti_path=outputs.get(self.STI),
                     )
                     if os.path.exists(intel_path):
                         outputs[self.INTELLIGENCE_REPORT] = intel_path

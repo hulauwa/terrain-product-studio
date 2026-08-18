@@ -80,6 +80,7 @@ class TerrainStudioDock(QDockWidget):
         self._fonts_populated = False
         self._contour_suggestion = None
         self._last_layout_layers = None
+        self._last_accumulation = None
         self._build_ui()
         self._connect_signals()
         self._on_layer_changed(self.dem_combo.currentLayer())
@@ -247,6 +248,9 @@ class TerrainStudioDock(QDockWidget):
             ("CREATE_SPOT_ELEVATIONS", self.tr("Spot elevation peaks (markers)"), True),
             ("CREATE_SUITABILITY", self.tr("Construction suitability (TCVN)"), True),
             ("CREATE_LANDSLIDE", self.tr("Landslide hazard & RUSLE LS"), True),
+            ("CREATE_GEOMORPHON", self.tr("Geomorphon terrain forms (10 classes)"), True),
+            ("CREATE_SPI", self.tr("Stream Power Index (SPI)"), True),
+            ("CREATE_STI", self.tr("Sediment Transport Index (STI)"), True),
             ("CREATE_3D_VIEWER", self.tr("Interactive 3D Web Terrain Viewer (HTML)"), True),
             ("CREATE_INTELLIGENCE_REPORT", self.tr("Topographic Intelligence Report (HTML)"), True),
             ("CREATE_PROFILE_CURVATURE", self.tr("Profile curvature (flow acceleration)"), False),
@@ -270,7 +274,17 @@ class TerrainStudioDock(QDockWidget):
             self.products[key] = checkbox
             layout.addWidget(item, index // 2, index % 2)
         layout.setColumnStretch(1, 1)
-        last_row = (len(definitions) - 1) // 2
+        note = QLabel(
+            self.tr(
+                "💡 SPI/STI and landslide hazard are most accurate after running "
+                "Hydrology — the dock passes its real flow accumulation to the "
+                "package. Without it, slope is used as a stand-in."
+            )
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #8a8a8a; font-size: 11px; margin-top: 8px;")
+        layout.addWidget(note, (len(definitions) - 1) // 2 + 1, 0, 1, 2)
+        last_row = (len(definitions) - 1) // 2 + 1
         layout.setRowStretch(last_row, 1)
         return tab
 
@@ -652,6 +666,7 @@ class TerrainStudioDock(QDockWidget):
         self.band_spin.setRange(1, max(1, bands))
         self.band_spin.setValue(1)
         self._contour_suggestion = None
+        self._last_accumulation = None
         self.contour_suggestion_label.setText(
             self.tr("Suggested interval: — (run Inspect DEM)")
         )
@@ -916,6 +931,7 @@ class TerrainStudioDock(QDockWidget):
             "INDEX_MULTIPLIER": self.index_multiplier.value(),
             "SMOOTHING": self.smoothing_combo.currentIndex(),
             "SIMPLIFY_TOLERANCE": self.simplify_tolerance.value(),
+            "ACCUMULATION": self._last_accumulation or None,
         }
         mode = self.extent_combo.currentData()
         if mode == "canvas" and self.iface and self.iface.mapCanvas():
@@ -1061,6 +1077,12 @@ class TerrainStudioDock(QDockWidget):
                 self.report_edit.appendPlainText(f"\n{self.tr('Extracting hydrology & river network…')}")
                 QgsApplication.taskManager().addTask(self.task)
                 return
+
+        # Remember real flow accumulation for the next package run so SPI/STI
+        # and landslide hazard use actual drainage instead of the slope proxy.
+        if self._phase == "hydrology" and results.get("FLOW_ACCUMULATION"):
+            self._last_accumulation = str(results.get("FLOW_ACCUMULATION"))
+        self._phase = None
 
         # Merge results if hydrology ran after terrain
         final_results = dict(results)

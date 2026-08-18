@@ -25,6 +25,9 @@ def generate_intelligence_report(
     suitability_path: str | None = None,
     hazard_path: str | None = None,
     twi_path: str | None = None,
+    geomorphon_path: str | None = None,
+    spi_path: str | None = None,
+    sti_path: str | None = None,
 ) -> str:
     """Generate an executive HTML topographic intelligence report with interactive SVG charts and spatial KPIs."""
     ds = gdal.Open(dem_path, gdal.GA_ReadOnly)
@@ -224,6 +227,58 @@ def generate_intelligence_report(
         except Exception:
             t_ds = None
 
+    # Geomorphon landform stats (10 forms)
+    from .geomorphon import GEOMORPHON_COLORS, GEOMORPHON_FORMS
+
+    geomorphon_rows = []
+    if geomorphon_path and os.path.exists(geomorphon_path):
+        try:
+            g_ds = gdal.Open(geomorphon_path, gdal.GA_ReadOnly)
+            if g_ds is not None:
+                g_arr = g_ds.GetRasterBand(1).ReadAsArray()
+                g_valid = g_arr > 0
+                tot_g = max(1, int(np.count_nonzero(g_valid)))
+                for idx, (name, color) in enumerate(
+                    zip(GEOMORPHON_FORMS, GEOMORPHON_COLORS), start=1
+                ):
+                    cnt = int(np.count_nonzero(g_arr == idx))
+                    p = round(cnt / tot_g * 100.0, 1)
+                    ha = round(cnt * pixel_area_km2 * 100.0, 1)
+                    geomorphon_rows.append(
+                        {"code": name, "color": color, "pct": p, "ha": ha}
+                    )
+                g_ds = None
+        except Exception:
+            g_ds = None
+
+    # SPI / STI hydro-energy stats
+    spi_mean = spi_max = 0.0
+    sti_mean = sti_max = 0.0
+    if spi_path and os.path.exists(spi_path):
+        try:
+            s_ds = gdal.Open(spi_path, gdal.GA_ReadOnly)
+            if s_ds is not None:
+                s_arr = s_ds.GetRasterBand(1).ReadAsArray().astype(np.float32, copy=False)
+                s_valid = valid & np.isfinite(s_arr)
+                if np.any(s_valid):
+                    spi_mean = float(np.mean(s_arr[s_valid]))
+                    spi_max = float(np.max(s_arr[s_valid]))
+                s_ds = None
+        except Exception:
+            s_ds = None
+    if sti_path and os.path.exists(sti_path):
+        try:
+            t_ds = gdal.Open(sti_path, gdal.GA_ReadOnly)
+            if t_ds is not None:
+                t_arr = t_ds.GetRasterBand(1).ReadAsArray().astype(np.float32, copy=False)
+                t_valid = valid & np.isfinite(t_arr)
+                if np.any(t_valid):
+                    sti_mean = float(np.mean(t_arr[t_valid]))
+                    sti_max = float(np.max(t_arr[t_valid]))
+                t_ds = None
+        except Exception:
+            t_ds = None
+
     suit_html_section = ""
     if suit_rows:
         suit_tbody = "".join(
@@ -274,6 +329,62 @@ def generate_intelligence_report(
           {hazard_tbody}
         </tbody>
       </table>
+    </div>"""
+
+    geomorphon_html_section = ""
+    if geomorphon_rows:
+        geo_tbody = "".join(
+            f"<tr><td><span class=\"badge\" style=\"background:{r['color']}\">{r['code']}</span></td>"
+            f"<td><strong>{r['ha']:,.1f} ha</strong></td>"
+            f"<td><strong style=\"color:#58a6ff;\">{r['pct']}%</strong></td></tr>"
+            for r in geomorphon_rows
+        )
+        geomorphon_html_section = f"""
+    <div class="section-title">⛰️ 6. Geomorphon Landform Classification</div>
+    <div class="card">
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+        Machine-vision terrain forms (Jasiewicz & Stepinski 2013) — percentage of the survey area in each of the 10 canonical landforms:
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Landform</th>
+            <th>Area (ha)</th>
+            <th>Proportion (%)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {geo_tbody}
+        </tbody>
+      </table>
+    </div>"""
+
+    hydro_energy_html_section = ""
+    if spi_path or sti_path:
+        spi_cell = (
+            f"<div class=\"kpi-card\"><div class=\"kpi-label\">Stream Power Index (SPI)</div>"
+            f"<div class=\"kpi-val\">{spi_mean:.1f} <span class=\"kpi-unit\">mean</span></div>"
+            f"<div class=\"kpi-sub\">Peak erosion energy: <b>{spi_max:.1f}</b></div></div>"
+            if spi_path
+            else ""
+        )
+        sti_cell = (
+            f"<div class=\"kpi-card\"><div class=\"kpi-label\">Sediment Transport Index (STI)</div>"
+            f"<div class=\"kpi-val\">{sti_mean:.1f} <span class=\"kpi-unit\">mean</span></div>"
+            f"<div class=\"kpi-sub\">Peak sediment flux: <b>{sti_max:.1f}</b></div></div>"
+            if sti_path
+            else ""
+        )
+        hydro_energy_html_section = f"""
+    <div class="section-title">💧 7. Hydro-Energy Indices (SPI / STI)</div>
+    <div class="card">
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+        Drainage-driven erosion power and sediment transport capacity derived from flow accumulation and slope:
+      </div>
+      <div class="grid-kpi">
+        {spi_cell}
+        {sti_cell}
+      </div>
     </div>"""
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M UTC")
@@ -479,6 +590,12 @@ def generate_intelligence_report(
 
     <!-- 5. Landslide Hazard Risk -->
     {hazard_html_section}
+
+    <!-- 6. Geomorphon Landform Classification -->
+    {geomorphon_html_section}
+
+    <!-- 7. Hydro-Energy Indices -->
+    {hydro_energy_html_section}
 
     <footer>
       Automatically generated by <b>Terrain Product Studio</b> • QGIS Automated Terrain Cartography & Geomorphometry Framework • Coordinate System: {proj[:40]}

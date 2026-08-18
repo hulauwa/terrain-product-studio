@@ -173,3 +173,76 @@ def calculate_landslide_hazard(
     ds_slope = None
     ds_acc = None
     return stats
+
+
+def _calculate_hydrologic_index(accumulation_path, slope_path, output_path, kind):
+    """Shared SPI / STI computation from a flow accumulation and slope raster.
+
+    Specific catchment area As = accumulation × cell size (m). ``kind`` is
+    either ``"spi"`` (Stream Power Index = ln(As · tan(slope))) or ``"sti"``
+    (Sediment Transport Index = (As/22.13)^0.6 · (sin(slope)/0.0896)^1.3).
+    """
+
+    ds_acc = gdal.Open(accumulation_path, gdal.GA_ReadOnly)
+    ds_slope = gdal.Open(slope_path, gdal.GA_ReadOnly)
+    if ds_acc is None or ds_slope is None:
+        raise RuntimeError(
+            f"Could not open accumulation or slope raster for {kind.upper()}."
+        )
+
+    acc = ds_acc.GetRasterBand(1).ReadAsArray().astype(np.float32, copy=False)
+    slope = ds_slope.GetRasterBand(1).ReadAsArray().astype(np.float32, copy=False)
+    if acc.shape != slope.shape:
+        ds_acc = None
+        ds_slope = None
+        raise RuntimeError(
+            f"{kind.upper()} requires accumulation and slope rasters with identical grids."
+        )
+
+    acc_nodata = ds_acc.GetRasterBand(1).GetNoDataValue()
+    slope_nodata = ds_slope.GetRasterBand(1).GetNoDataValue()
+    valid = np.isfinite(acc) & np.isfinite(slope)
+    if acc_nodata is not None and math.isfinite(float(acc_nodata)):
+        valid &= acc != float(acc_nodata)
+    if slope_nodata is not None and math.isfinite(float(slope_nodata)):
+        valid &= slope != float(slope_nodata)
+    valid &= acc >= 1.0
+
+    geotransform = ds_slope.GetGeoTransform()
+    cell_size = max(abs(geotransform[1]), 1.0)
+    As = np.maximum(acc * cell_size, cell_size)
+    slope_rad = np.radians(np.clip(slope, 0.0, 89.0))
+    sin_slope = np.sin(slope_rad)
+
+    index = np.zeros_like(acc, dtype=np.float32)
+    if kind == "spi":
+        index[valid] = np.log(
+            np.maximum(As[valid] * np.maximum(np.tan(slope_rad[valid]), 1e-9), 1e-9)
+        )
+    else:  # sti — Moore & Wilson (1992) / Desmet & Govers (1996) form
+        index[valid] = ((As[valid] / 22.13) ** 0.6) * (
+            (np.maximum(sin_slope[valid], 0.001) / 0.0896) ** 1.3
+        )
+
+    output = index.copy()
+    output[~valid] = -9999.0
+    _write_raster(ds_slope, output_path, output, gdal.GDT_Float32, -9999.0)
+    ds_acc = None
+    ds_slope = None
+
+    if np.any(valid):
+        return {
+            "max": round(float(np.max(index[valid])), 3),
+            "mean": round(float(np.mean(index[valid])), 3),
+        }
+    return {"max": 0.0, "mean": 0.0}
+
+
+def calculate_spi(accumulation_path: str, slope_path: str, output_path: str) -> dict:
+    """Stream Power Index — SPI = ln(As × tan(slope)); As = acc × cell size."""
+    return _calculate_hydrologic_index(accumulation_path, slope_path, output_path, "spi")
+
+
+def calculate_sti(accumulation_path: str, slope_path: str, output_path: str) -> dict:
+    """Sediment Transport Index — STI = (As/22.13)^0.6 × (sin(slope)/0.0896)^1.3."""
+    return _calculate_hydrologic_index(accumulation_path, slope_path, output_path, "sti")

@@ -421,3 +421,42 @@ def apply_landslide_style(layer):
     )
 
 
+def apply_geomorphon_style(layer):
+    """Apply the 10-class geomorphon landform categorical colormap."""
+    from .geomorphon import GEOMORPHON_COLORS, GEOMORPHON_FORMS
+
+    _pseudocolor(
+        layer,
+        tuple(
+            (float(code), color, f"{code} · {name}")
+            for code, (name, color) in enumerate(
+                zip(GEOMORPHON_FORMS, GEOMORPHON_COLORS), start=1
+            )
+        ),
+    )
+
+
+def apply_spi_style(layer):
+    """Apply the Stream Power Index blue→yellow→red ramp."""
+    _pseudocolor(
+        layer,
+        (
+            (1.0, "#2c7bb6", "Low"),
+            (6.0, "#ffffbf", "Moderate"),
+            (12.0, "#d7191c", "High"),
+        ),
+    )
+
+
+def apply_sti_style(layer):
+    """Apply the Sediment Transport Index blue→yellow→red ramp."""
+    _pseudocolor(
+        layer,
+        (
+            (0.0, "#2c7bb6", "Low"),
+            (6.0, "#ffffbf", "Moderate"),
+            (20.0, "#d7191c", "High"),
+        ),
+    )
+
+

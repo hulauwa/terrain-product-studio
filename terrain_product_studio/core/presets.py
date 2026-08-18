@@ -248,5 +248,8 @@ OUTPUT_LABELS = {
     "SUITABILITY": "Slope construction suitability",
     "LANDSLIDE_HAZARD": "Landslide hazard risk",
     "LS_FACTOR": "RUSLE LS slope-length factor",
+    "GEOMORPHON": "Geomorphon terrain forms",
+    "SPI": "Stream Power Index (SPI)",
+    "STI": "Sediment Transport Index (STI)",
 }
 

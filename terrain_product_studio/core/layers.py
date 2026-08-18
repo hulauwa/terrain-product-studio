@@ -13,12 +13,15 @@ from .styles import (
     apply_contour_style,
     apply_curvature_style,
     apply_flow_accumulation_style,
+    apply_geomorphon_style,
     apply_hillshade_style,
     apply_landslide_style,
     apply_ridge_style,
     apply_ruggedness_style,
     apply_slope_style,
     apply_spot_elevation_style,
+    apply_spi_style,
+    apply_sti_style,
     apply_stream_style,
     apply_suitability_style,
     apply_tpi_style,
@@ -88,6 +91,9 @@ def add_terrain_results(
         "SUITABILITY": (analysis_group, False),
         "LANDSLIDE_HAZARD": (analysis_group, False),
         "LS_FACTOR": (analysis_group, False),
+        "GEOMORPHON": (analysis_group, False),
+        "SPI": (hydro_group, False),
+        "STI": (hydro_group, False),
         "FILLED_DEM": (quality_group, False),
         "WORKING_DEM": (quality_group, False),
     }
@@ -226,6 +232,12 @@ def add_terrain_results(
         apply_suitability_style(layers["SUITABILITY"])
     if "LANDSLIDE_HAZARD" in layers:
         apply_landslide_style(layers["LANDSLIDE_HAZARD"])
+    if "GEOMORPHON" in layers:
+        apply_geomorphon_style(layers["GEOMORPHON"])
+    if "SPI" in layers:
+        apply_spi_style(layers["SPI"])
+    if "STI" in layers:
+        apply_sti_style(layers["STI"])
 
     analysis_group.setItemVisibilityChecked(False)
     quality_group.setItemVisibilityChecked(False)
