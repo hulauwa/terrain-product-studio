@@ -22,7 +22,6 @@ app = QgsApplication([], False)
 app.initQgis()
 app.setQuitOnLastWindowClosed(False)
 
-from qgis.PyQt.QtCore import QRect
 from qgis.PyQt.QtWidgets import QScrollArea
 
 from terrain_product_studio.dock import TerrainStudioDock

@@ -117,6 +117,17 @@ def add_terrain_results(
         else:
             failed.append(path)
 
+    if "CONTOURS_SMOOTH" in results:
+        path = _source_path(results["CONTOURS_SMOOTH"])
+        smooth_contour = QgsVectorLayer(path, OUTPUT_LABELS["CONTOURS_SMOOTH"], "ogr")
+        if smooth_contour.isValid():
+            project.addMapLayer(smooth_contour, False)
+            contour_group.addLayer(smooth_contour)
+            layers["CONTOURS_SMOOTH"] = smooth_contour
+            loaded += 1
+        else:
+            failed.append(path)
+
     if "SPOT_ELEVATIONS" in results:
         path = _source_path(results["SPOT_ELEVATIONS"])
         spots = QgsVectorLayer(path, OUTPUT_LABELS["SPOT_ELEVATIONS"], "ogr")
@@ -150,6 +161,17 @@ def add_terrain_results(
         else:
             failed.append(path)
 
+    if "STREAMS_SMOOTH" in results:
+        path = _source_path(results["STREAMS_SMOOTH"])
+        smooth_streams = QgsVectorLayer(path, OUTPUT_LABELS["STREAMS_SMOOTH"], "ogr")
+        if smooth_streams.isValid():
+            project.addMapLayer(smooth_streams, False)
+            hydro_group.insertLayer(1, smooth_streams)
+            layers["STREAMS_SMOOTH"] = smooth_streams
+            loaded += 1
+        else:
+            failed.append(path)
+
     if "COLOR_RELIEF" in nodes:
         base_group.insertChildNode(len(base_group.children()), nodes["COLOR_RELIEF"].clone())
         base_group.removeChildNode(nodes["COLOR_RELIEF"])
@@ -177,10 +199,21 @@ def add_terrain_results(
             cartography_preset,
             font_family,
         )
+    if "CONTOURS_SMOOTH" in layers:
+        apply_contour_style(
+            layers["CONTOURS_SMOOTH"],
+            contour_interval,
+            index_multiplier,
+            z_unit,
+            cartography_preset,
+            font_family,
+        )
     if "SPOT_ELEVATIONS" in layers:
         apply_spot_elevation_style(layers["SPOT_ELEVATIONS"], cartography_preset, font_family)
     if "STREAMS" in layers:
         apply_stream_style(layers["STREAMS"], cartography_preset)
+    if "STREAMS_SMOOTH" in layers:
+        apply_stream_style(layers["STREAMS_SMOOTH"], cartography_preset)
     if "RIDGES" in layers:
         apply_ridge_style(layers["RIDGES"], cartography_preset)
     if "FLOW_ACCUMULATION" in layers:

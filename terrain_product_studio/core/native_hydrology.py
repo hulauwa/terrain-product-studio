@@ -231,9 +231,11 @@ def _write_continuous_stream_network(
         max_order_found = max(max_order_found, reach["order"])
 
     layer.CommitTransaction()
-    ds = None
 
-    # Also export accompanying geojson if GPKG was written
+    # Also export an accompanying geojson if GPKG was written.  The copy must
+    # happen while the GPKG datasource is still open: CopyLayer on a layer
+    # whose parent datasource was destroyed is undefined behaviour and
+    # segfaults in some GDAL builds.
     if is_gpkg:
         geojson_path = os.path.splitext(vector_path)[0] + ".geojson"
         try:
@@ -246,6 +248,7 @@ def _write_continuous_stream_network(
         except Exception:
             gjson_ds = None
 
+    ds = None
     return len(reaches), max_order_found
 
 

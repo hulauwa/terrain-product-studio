@@ -36,7 +36,9 @@ from ..core.dem_info import inspect_dem_layer
 from ..core.intelligence_report import generate_intelligence_report
 from ..core.math_utils import interpolate_color_stops, sanitize_prefix, unique_path
 from ..core.presets import TERRAIN_PALETTES
+from ..core import plugin_version
 from ..core.qgis_compat import all_raster_statistics_flag
+from ..core.smoothing import smooth_geometries
 from ..core.spot_elevations import extract_spot_elevations
 from ..core.thematic_terrain import calculate_landslide_hazard, calculate_slope_suitability
 from ..core.web_3d_viewer import generate_3d_web_viewer
@@ -90,6 +92,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     CREATE_INTELLIGENCE_REPORT = "CREATE_INTELLIGENCE_REPORT"
     CONTOUR_INTERVAL = "CONTOUR_INTERVAL"
     INDEX_MULTIPLIER = "INDEX_MULTIPLIER"
+    SMOOTHING = "SMOOTHING"
+    SIMPLIFY_TOLERANCE = "SIMPLIFY_TOLERANCE"
 
     WORKING_DEM = "WORKING_DEM"
     COLOR_RELIEF = "COLOR_RELIEF"
@@ -103,6 +107,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     PROFILE_CURVATURE = "PROFILE_CURVATURE"
     PLANFORM_CURVATURE = "PLANFORM_CURVATURE"
     CONTOURS = "CONTOURS"
+    CONTOURS_SMOOTH = "CONTOURS_SMOOTH"
     SPOT_ELEVATIONS = "SPOT_ELEVATIONS"
     SUITABILITY = "SUITABILITY"
     LANDSLIDE_HAZARD = "LANDSLIDE_HAZARD"
@@ -275,6 +280,23 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=5,
             )
         )
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.SMOOTHING,
+                self.tr("Contour smoothness (cartographic copy)"),
+                options=[self.tr("Off"), self.tr("Light"), self.tr("Medium"), self.tr("Heavy")],
+                defaultValue=0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.SIMPLIFY_TOLERANCE,
+                self.tr("Simplify contours before smoothing (map units, 0 = off)"),
+                type=_number_type_double(),
+                minValue=0.0,
+                defaultValue=0.0,
+            )
+        )
 
         self.addOutput(QgsProcessingOutputRasterLayer(self.WORKING_DEM, self.tr("Working DEM")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.COLOR_RELIEF, self.tr("Color relief")))
@@ -290,6 +312,11 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         self.addOutput(QgsProcessingOutputRasterLayer(self.PROFILE_CURVATURE, self.tr("Profile curvature")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.PLANFORM_CURVATURE, self.tr("Planform curvature")))
         self.addOutput(QgsProcessingOutputVectorLayer(self.CONTOURS, self.tr("Contours")))
+        self.addOutput(
+            QgsProcessingOutputVectorLayer(
+                self.CONTOURS_SMOOTH, self.tr("Smoothed contours (cartographic copy)")
+            )
+        )
         self.addOutput(QgsProcessingOutputVectorLayer(self.SPOT_ELEVATIONS, self.tr("Spot elevation peaks")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.SUITABILITY, self.tr("Slope construction suitability")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.LANDSLIDE_HAZARD, self.tr("Landslide hazard risk")))
@@ -670,6 +697,36 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             extension="gpkg",
         )
 
+        # Cartographic copy: Chaikin smoothing (+ optional Douglas-Peucker
+        # pre-pass) on a display-only contours file. The raw contours keep
+        # their exact coordinates for analytical use.
+        if selected[self.CONTOURS] and outputs.get(self.CONTOURS):
+            smoothing_index = self.parameterAsEnum(parameters, self.SMOOTHING, context)
+            simplify_tolerance = self.parameterAsDouble(
+                parameters, self.SIMPLIFY_TOLERANCE, context
+            )
+            if smoothing_index > 0 or simplify_tolerance > 0:
+                if not multi.isCanceled():
+                    multi.setCurrentStep(current_step)
+                    current_step += 1
+                    smooth_path = self._output_path(
+                        folder, prefix, "contours_smooth", "gpkg"
+                    )
+                    multi.pushInfo(self.tr("Smoothing contours for cartographic display…"))
+                    try:
+                        summary = smooth_geometries(
+                            outputs[self.CONTOURS],
+                            smooth_path,
+                            iterations=smoothing_index,
+                            simplify_tolerance=simplify_tolerance,
+                        )
+                        if os.path.exists(smooth_path) and summary.get(
+                            "smoothed_features", 0
+                        ) > 0:
+                            outputs[self.CONTOURS_SMOOTH] = smooth_path
+                    except Exception as err:
+                        warnings.append(f"Contour smoothing notice: {err}")
+
         if selected[self.SPOT_ELEVATIONS]:
             if not multi.isCanceled():
                 multi.setCurrentStep(current_step)
@@ -766,7 +823,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         report_path = self._output_path(folder, prefix, "report", "json")
         report = {
             "plugin": "Terrain Product Studio",
-            "version": "0.2.0",
+            "version": plugin_version(),
             "created_utc": datetime.now(timezone.utc).isoformat(),
             "source": source.source(),
             "source_band": band,

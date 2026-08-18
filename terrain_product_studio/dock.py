@@ -305,6 +305,18 @@ class TerrainStudioDock(QDockWidget):
         layout.addRow(self.tr("Contour interval"), self.contour_interval)
         layout.addRow(self.tr("Index multiplier (every Nth line)"), self.index_multiplier)
         layout.addRow(self.tr("Index contour interval"), self.index_preview)
+        self.smoothing_combo = QComboBox()
+        self.smoothing_combo.addItems(
+            [self.tr("Off"), self.tr("Light"), self.tr("Medium"), self.tr("Heavy")]
+        )
+        self.simplify_tolerance = QDoubleSpinBox()
+        self.simplify_tolerance.setRange(0.0, 100000.0)
+        self.simplify_tolerance.setDecimals(1)
+        self.simplify_tolerance.setValue(0.0)
+        self.simplify_tolerance.setSuffix(f" {self.tr('map units')}")
+        self.simplify_tolerance.setSpecialValueText(self.tr("Off"))
+        layout.addRow(self.tr("Smoothness level"), self.smoothing_combo)
+        layout.addRow(self.tr("Simplify before smoothing"), self.simplify_tolerance)
         note = QLabel(
             self.tr(
                 "Contours are saved in GeoPackage. Styled with 3-tier USGS cartography: "
@@ -332,6 +344,11 @@ class TerrainStudioDock(QDockWidget):
         self.basins_check.setChecked(True)
         layout.addRow(self.hydrology_check)
         layout.addRow(self.tr("Minimum contributing area"), self.stream_threshold)
+        self.stream_smoothing_combo = QComboBox()
+        self.stream_smoothing_combo.addItems(
+            [self.tr("Off"), self.tr("Light"), self.tr("Medium"), self.tr("Heavy")]
+        )
+        layout.addRow(self.tr("River smoothness level"), self.stream_smoothing_combo)
         layout.addRow(self.twi_check)
         layout.addRow(self.basins_check)
         self.hydrology_note = QLabel(
@@ -897,6 +914,8 @@ class TerrainStudioDock(QDockWidget):
             "CREATE_CONTOURS": self.contour_check.isChecked(),
             "CONTOUR_INTERVAL": self.contour_interval.value(),
             "INDEX_MULTIPLIER": self.index_multiplier.value(),
+            "SMOOTHING": self.smoothing_combo.currentIndex(),
+            "SIMPLIFY_TOLERANCE": self.simplify_tolerance.value(),
         }
         mode = self.extent_combo.currentData()
         if mode == "canvas" and self.iface and self.iface.mapCanvas():
@@ -1030,6 +1049,8 @@ class TerrainStudioDock(QDockWidget):
                     "STREAM_THRESHOLD_HA": self.stream_threshold.value(),
                     "CREATE_BASINS": self.basins_check.isChecked(),
                     "CREATE_TWI": self.twi_check.isChecked(),
+                    "SMOOTHING": self.stream_smoothing_combo.currentIndex(),
+                    "SIMPLIFY_TOLERANCE": self.simplify_tolerance.value(),
                 }
                 self.feedback = QgsProcessingFeedback()
                 self.feedback.progressChanged.connect(lambda val: self.progress.setValue(int(val)))

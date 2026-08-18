@@ -24,8 +24,10 @@ from qgis.core import (
     QgsUnitTypes,
 )
 
+from ..core import plugin_version
 from ..core.math_utils import sanitize_prefix, unique_path
 from ..core.native_hydrology import calculate_complete_hydrology
+from ..core.smoothing import smooth_geometries
 
 
 def _number_type_double():
@@ -45,12 +47,15 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
     STREAM_THRESHOLD_HA = "STREAM_THRESHOLD_HA"
     CREATE_BASINS = "CREATE_BASINS"
     CREATE_TWI = "CREATE_TWI"
+    SMOOTHING = "SMOOTHING"
+    SIMPLIFY_TOLERANCE = "SIMPLIFY_TOLERANCE"
 
     FILLED_DEM = "FILLED_DEM"
     FLOW_DIRECTION = "FLOW_DIRECTION"
     FLOW_ACCUMULATION = "FLOW_ACCUMULATION"
     STREAM_RASTER = "STREAM_RASTER"
     STREAMS = "STREAMS"
+    STREAMS_SMOOTH = "STREAMS_SMOOTH"
     BASINS = "BASINS"
     TWI = "TWI"
     HYDROLOGY_REPORT = "HYDROLOGY_REPORT"
@@ -126,6 +131,23 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
                 self.CREATE_TWI, self.tr("Create Topographic Wetness Index (TWI)"), defaultValue=True
             )
         )
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.SMOOTHING,
+                self.tr("River smoothness (cartographic copy)"),
+                options=[self.tr("Off"), self.tr("Light"), self.tr("Medium"), self.tr("Heavy")],
+                defaultValue=0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.SIMPLIFY_TOLERANCE,
+                self.tr("Simplify rivers before smoothing (map units, 0 = off)"),
+                type=_number_type_double(),
+                minValue=0.0,
+                defaultValue=0.0,
+            )
+        )
 
         self.addOutput(QgsProcessingOutputRasterLayer(self.FILLED_DEM, self.tr("Filled DEM")))
         self.addOutput(
@@ -139,6 +161,11 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
         )
         self.addOutput(
             QgsProcessingOutputVectorLayer(self.STREAMS, self.tr("Potential drainage network"))
+        )
+        self.addOutput(
+            QgsProcessingOutputVectorLayer(
+                self.STREAMS_SMOOTH, self.tr("Smoothed rivers (cartographic copy)")
+            )
         )
         self.addOutput(QgsProcessingOutputRasterLayer(self.BASINS, self.tr("Watershed basins")))
         self.addOutput(
@@ -244,10 +271,37 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
                 raise QgsProcessingException(self.tr(f"Hydrology output '{key}' was not created."))
             outputs[key] = path
 
+        # Cartographic copy: Chaikin smoothing on the river polylines. The raw
+        # D8 network stays untouched for hydrological calculations.
+        smoothing_index = self.parameterAsEnum(parameters, self.SMOOTHING, context)
+        simplify_tolerance = self.parameterAsDouble(
+            parameters, self.SIMPLIFY_TOLERANCE, context
+        )
+        if (smoothing_index > 0 or simplify_tolerance > 0) and os.path.exists(
+            paths[self.STREAMS]
+        ):
+            smooth_path = self._output_path(
+                folder, prefix, "potential_streams_smooth", "gpkg"
+            )
+            feedback.pushInfo(self.tr("Smoothing river polylines for cartographic display…"))
+            try:
+                summary = smooth_geometries(
+                    paths[self.STREAMS],
+                    smooth_path,
+                    iterations=smoothing_index,
+                    simplify_tolerance=simplify_tolerance,
+                )
+                if os.path.exists(smooth_path) and summary.get(
+                    "smoothed_features", 0
+                ) > 0:
+                    outputs[self.STREAMS_SMOOTH] = smooth_path
+            except RuntimeError as error:
+                raise QgsProcessingException(str(error)) from error
+
         report_path = self._output_path(folder, prefix, "hydrology_report", "json")
         report = {
             "plugin": "Terrain Product Studio",
-            "version": "0.2.0",
+            "version": plugin_version(),
             "created_utc": datetime.now(timezone.utc).isoformat(),
             "source": source.source(),
             "source_band": band,
