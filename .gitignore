@@ -12,3 +12,7 @@ tss/
 # Local Claude Code environment (machine-specific paths, Keychain helpers)
 .claude/
 
+
+# Local Claude Code project instructions (not published)
+CLAUDE.md
+
