@@ -130,9 +130,11 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 ## 🚀 Installation
 
 ### Option A: Install via QGIS Plugin Manager
-1. Download the latest `terrain_product_studio-1.0.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Download the latest `terrain_product_studio-1.1.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Open QGIS $\rightarrow$ **Plugins** $\rightarrow$ **Manage and Install Plugins...**
 3. Select **Install from ZIP** $\rightarrow$ choose the downloaded `.zip` file $\rightarrow$ Click **Install Plugin**.
+
+> **v1.1.0**: responsive scrollable dock (Run button always reachable), compact 2-column Products tab, and ~40% faster dock startup (fonts load only when the Layout tab is opened).
 
 ### Option B: Manual Installation
 Copy the `terrain_product_studio` directory into your QGIS active profile plugin folder:
