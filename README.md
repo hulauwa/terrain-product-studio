@@ -31,7 +31,10 @@
 ## 🌟 Key Highlights
 
 - **Zero Data Distortion**: Raw analytical derivatives maintain real floating-point physical units (degrees, radians, meters, index scores) while cartographic layers receive styling.
-- **Continuous Strahler Polyline Network**: Advanced D8 topological tracing extracts smooth, continuous vector streams with rich hydraulic attributes (`ORDER`, `LENGTH_M`, `AREA_HA`).
+- **Smart Setup Assistant**: Contour interval suggested from AOI scale and relief (snapped to the standard `1/2/2.5/5/10/20/25/50/100` table) with one-click Apply; palette gradient thumbnails; **Dark / Night** theme with live swatch preview.
+- **Continuous Strahler Polyline Network**: Advanced D8 topological tracing extracts smooth, continuous vector streams with rich hydraulic attributes (`ORDER`, `LENGTH_M`, `AREA_HA`) — now with optional Chaikin / Douglas–Peucker cartographic smoothing.
+- **Multi-Hazard Composite & Shareable Bundle**: Weighted landslide × slope × TWI composite index, exported together with every raster and vector layer into **one GeoPackage** (lossless PNG tiles for byte rasters, OGC 2D-gridded-coverage for float rasters).
+- **3D Printing & Workflow**: STL/OBJ mesh export (auto-downsampling, z exaggeration, watertight base plate), one-click industry presets (Urban / Agriculture / Disaster / Mining), and a run-history journal (last 20 jobs reopenable from the Inspect tab).
 - **Real-Time 3D WebGIS Studio (`.html`)**: Self-contained WebGL 3D terrain viewer with flood simulation, live profile cross-sections, solar shadow time-lapse, drone flythrough, and AI Q&A assistant.
 - **Topographic Intelligence Report (`.html`)**: Executive summary dashboard featuring SVG Aspect Rose radar charts, hypsometric histograms, and TCVN geotechnical matrices.
 - **Dual QGIS 3 (Qt5) & QGIS 4 (Qt6) Compatibility**: Fully verified against scoped enum architectures and modern Python 3.12+ environments.
@@ -50,6 +53,9 @@
 | **TPI** | Guisan et al. (1999) $z_0 - \bar{z}$ | Topographic Position Index: Distinguishes ridge tops, upper slopes, flat plains, and valley bottoms. |
 | **Roughness** | $\max(z_{ij}) - \min(z_{ij})$ | Morphological roughness within $3\times3$ kernel. |
 | **Curvatures** | Profile & Planform | Flow acceleration (profile) and flow convergence/divergence (planform). |
+| **Geomorphon** | Jasiewicz & Stepinski (2013) | 10-terrain-form classification (flat, peak, ridge, slope, valley, pit...) by line-of-sight angle comparison. |
+| **SPI** | Moore et al. (1991) $A_s \tan \beta$ | Stream Power Index: erosive power of concentrated flow. |
+| **STI** | Sediment Transport Index | Relative sediment flux — erodibility hot spots for soil conservation planning. |
 
 ### 2. Hydrology & River Network
 
@@ -73,7 +79,11 @@
   - *Class 4 ($15^\circ - 25^\circ$)*: Restricted / Steep terrain (`#fd8d3c`).
   - *Class 5 ($> 25^\circ$)*: Unsuitable / Conservation zone (`#e31a1c`).
 - **Landslide Hazard & RUSLE LS-Factor**:
-  - Topographic length-slope factor $(LS)$ combined with slope angles to classify erosion severity and landslide potential.
+  - Topographic length-slope factor $(LS)$ combined with slope angles to classify erosion severity and landslide potential (uses the real flow-accumulation grid).
+- **Multi-Hazard Composite Index**:
+  - Weighted combination of landslide hazard × slope × TWI (user-adjustable weights) into a single composite risk raster with 4 severity classes.
+- **GeoPackage Bundle**:
+  - Every raster and vector product merged into **one `.gpkg`** file ready to share (byte rasters as lossless PNG tiles, float rasters via the OGC 2D-gridded-coverage extension).
 
 ### 4. Publication-Grade Cartography
 
@@ -83,6 +93,7 @@
   - *Master Contours*: $0.65\text{ mm}$ prominent boundary lines.
 - **Spot Elevation Peaks**: Morphologically isolated local summits filtered by minimum prominence and col distance, styled with elevation badges.
 - **Hypsometric Color Relief & Multidirectional Hillshade**: 4-azimuth blended lighting ($225^\circ, 270^\circ, 315^\circ, 360^\circ$) eliminates directional shadow bias.
+- **Cartographic Smoothing**: Chaikin corner-cutting (rounding) and Douglas–Peucker simplification for both contours and river networks — a `SMOOTHING` combo on the Products tab.
 
 ---
 
@@ -116,6 +127,14 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 
 ---
 
+### 7. 3D Printing & Workflow Automation
+
+- **STL / OBJ Mesh Export**: Binary STL or OBJ+MTL of the terrain, ready for 3D printers — automatic downsampling above $1024^2$ cells, z-exaggeration factor, and optional base-plate extrusion that makes the mesh a **watertight solid**.
+- **Industry Presets**: One click ticks the right product set — *Urban / Construction*, *Agriculture*, *Disaster management*, *Mining / Infrastructure* — or stay on *Custom selection*.
+- **Run History**: The last 20 runs are journaled in the QGIS profile; reopen the output folder and intelligence report straight from the Inspect tab.
+
+---
+
 ## 🎯 Scale-Aware Intelligence & Processing Extent
 
 1. **Processing Extent Modes**:
@@ -130,11 +149,11 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 ## 🚀 Installation
 
 ### Option A: Install via QGIS Plugin Manager
-1. Download the latest `terrain_product_studio-1.2.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Download the latest `terrain_product_studio-2.0.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Open QGIS $\rightarrow$ **Plugins** $\rightarrow$ **Manage and Install Plugins...**
 3. Select **Install from ZIP** $\rightarrow$ choose the downloaded `.zip` file $\rightarrow$ Click **Install Plugin**.
 
-> **v1.2.0**: fixes every finding from the QGIS Plugin Repository security scan (Bandit B110/B608, Flake8 F821, Qt6 scoped enums) — resubmitted under a new version number because 1.1.0 is already registered. Also includes the responsive scrollable dock (Run button always reachable), compact 2-column Products tab, and ~40% faster dock startup (fonts load only when the Layout tab is opened).
+> **v2.0.0**: publication-grade release — smart setup assistant (suggested contour intervals, palette thumbnails, Dark/Night theme), Chaikin/Douglas–Peucker smoothing for contours & rivers, geomorphon/SPI/STI products, weighted multi-hazard composite index, single-GeoPackage bundle, STL/OBJ 3D-print export, industry presets and run history. (v1.2.0 fixed every finding from the QGIS Plugin Repository security scan.)
 
 ### Option B: Manual Installation
 Copy the `terrain_product_studio` directory into your QGIS active profile plugin folder:
@@ -151,10 +170,12 @@ Copy the `terrain_product_studio` directory into your QGIS active profile plugin
 3. **2 · Processing Extent**: Choose between *Full DEM*, *Current Map Canvas*, or a specific *Boundary Layer*.
 4. **3 · Output**: Specify your destination folder (defaults to plugin's `temp/` folder) and custom file prefix.
 5. **Tabs**:
-   - **Products**: Check desired analytical rasters, 3D WebGIS Studio, and Intelligence Report.
+   - **Products**: Pick an **industry preset** (Urban / Agriculture / Disaster / Mining) or check products manually; configure smoothing and the composite-index weights.
    - **Contours**: Adjust contour interval and index multiplier.
    - **Hydrology**: Enable drainage extraction and set stream initiation threshold ($ha$).
    - **Layout**: Configure automated print layout generation and PDF/PNG export.
+   - **Settings**: Z-exaggeration and base thickness for the **STL/OBJ 3D-print export**.
+   - **Inspect**: Reopen the output folder / intelligence report of any of the last 20 runs.
 6. Click **Build Product Package**.
 7. Once finished, click **🌐 View 3D Web Map** or **📊 View Report** to launch the interactive deliverables in your default browser.
 
@@ -165,16 +186,26 @@ Copy the `terrain_product_studio` directory into your QGIS active profile plugin
 ```
 terrain_product_studio/
 ├── algorithms/
-│   ├── build_package.py       # Main Processing Provider algorithm (Terrain)
-│   └── build_hydrology.py     # Hydrology & Drainage Processing algorithm
+│   ├── build_package.py       # Main Processing algorithm: full product package
+│   ├── build_hydrology.py     # Hydrology & drainage Processing algorithm
+│   └── inspect_dem.py         # DEM inspection algorithm
 ├── core/
+│   ├── bundle.py              # Single-GeoPackage merge (rasters + vectors)
 │   ├── dem_info.py            # Inspection heuristics & scale recommendations
+│   ├── export_3d.py           # Binary STL / OBJ mesh export (watertight)
+│   ├── geomorphon.py          # Jasiewicz & Stepinski terrain forms
+│   ├── history.py             # Run-history journal (last 20 jobs)
 │   ├── intelligence_report.py # Topographic Intelligence HTML generator
+│   ├── layers.py              # Project layer stacking & grouping
+│   ├── layouts.py             # Print layout composer (paper size, themes)
+│   ├── math_utils.py          # nice_interval, snapping, prefix sanitizing
 │   ├── native_hydrology.py    # D8 routing & Continuous Strahler tracing
+│   ├── presets.py             # Terrain palettes, cartography themes, industry presets
 │   ├── qgis_compat.py         # Qt5 / Qt6 & QGIS 3 / 4 dual compatibility
+│   ├── smoothing.py           # Chaikin & Douglas–Peucker line smoothing
 │   ├── spot_elevations.py     # Peak detection & prominence filtering
 │   ├── styles.py              # Automated styling & symbology rules
-│   ├── thematic_terrain.py    # TCVN Suitability & Landslide LS algorithms
+│   ├── thematic_terrain.py    # TCVN Suitability, landslide, multi-hazard, SPI/STI
 │   └── web_3d_viewer.py       # WebGL 3D Interactive WebGIS Studio generator
 ├── dock.py                    # Dock widget UI & reactive signal controller
 └── plugin.py                  # Plugin entry point & menu registration

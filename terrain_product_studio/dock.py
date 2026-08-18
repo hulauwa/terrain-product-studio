@@ -268,7 +268,7 @@ class TerrainStudioDock(QDockWidget):
         self.industry_combo = QComboBox()
         self.industry_combo.addItem(self.tr("Custom selection"), "")
         for key, (label, _) in INDUSTRY_PRESETS.items():
-            self.industry_combo.addItem(label, key)
+            self.industry_combo.addItem(self.tr(label), key)
         layout.addWidget(self.industry_combo, 0, 0, 1, 2)
         # Two-column compact grid: halves the Products tab height and keeps
         # the whole dock short enough that the Run button rarely needs scrolling.

@@ -275,5 +275,25 @@
         <source>Zevenbergen–Thorne (smoother slopes)</source>
         <translation>Zevenbergen–Thorne (địa hình trơn)</translation>
     </message>
+    <message>
+        <source>Custom selection</source>
+        <translation>Chọn theo nhu cầu</translation>
+    </message>
+    <message>
+        <source>Urban / Construction</source>
+        <translation>Đô thị / xây dựng</translation>
+    </message>
+    <message>
+        <source>Agriculture</source>
+        <translation>Nông nghiệp</translation>
+    </message>
+    <message>
+        <source>Disaster management</source>
+        <translation>Phòng chống thiên tai</translation>
+    </message>
+    <message>
+        <source>Mining / Infrastructure</source>
+        <translation>Khai khoáng / cơ sở hạ tầng</translation>
+    </message>
 </context>
 </TS>

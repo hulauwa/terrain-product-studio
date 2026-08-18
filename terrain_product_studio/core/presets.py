@@ -260,7 +260,7 @@ OUTPUT_LABELS = {
 # "CREATE_HYDROLOGY" key ticks the Hydrology tab checkbox as well.
 INDUSTRY_PRESETS = {
     "urban": (
-        "Đô thị / xây dựng",
+        "Urban / Construction",
         (
             "CREATE_SUITABILITY",
             "CREATE_CONTOURS",
@@ -270,7 +270,7 @@ INDUSTRY_PRESETS = {
         ),
     ),
     "agriculture": (
-        "Nông nghiệp",
+        "Agriculture",
         (
             "CREATE_SLOPE",
             "CREATE_TWI",
@@ -280,7 +280,7 @@ INDUSTRY_PRESETS = {
         ),
     ),
     "disaster": (
-        "Phòng chống thiên tai",
+        "Disaster management",
         (
             "CREATE_LANDSLIDE",
             "CREATE_MULTIHAZARD",
@@ -289,7 +289,7 @@ INDUSTRY_PRESETS = {
         ),
     ),
     "mining": (
-        "Khai khoáng / cơ sở hạ tầng",
+        "Mining / Infrastructure",
         (
             "CREATE_SLOPE",
             "CREATE_ASPECT",
