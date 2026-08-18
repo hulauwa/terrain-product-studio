@@ -254,3 +254,48 @@ OUTPUT_LABELS = {
     "MULTIHAZARD": "Multi-hazard composite index",
 }
 
+
+# One-click product selections per industry, shown in a combo at the top of
+# the Products tab. Keys are the dock's CREATE_* checkbox keys; the special
+# "CREATE_HYDROLOGY" key ticks the Hydrology tab checkbox as well.
+INDUSTRY_PRESETS = {
+    "urban": (
+        "Đô thị / xây dựng",
+        (
+            "CREATE_SUITABILITY",
+            "CREATE_CONTOURS",
+            "CREATE_COLOR_RELIEF",
+            "CREATE_SLOPE",
+            "CREATE_LANDSLIDE",
+        ),
+    ),
+    "agriculture": (
+        "Nông nghiệp",
+        (
+            "CREATE_SLOPE",
+            "CREATE_TWI",
+            "CREATE_SPI",
+            "CREATE_STI",
+            "CREATE_COLOR_RELIEF",
+        ),
+    ),
+    "disaster": (
+        "Phòng chống thiên tai",
+        (
+            "CREATE_LANDSLIDE",
+            "CREATE_MULTIHAZARD",
+            "CREATE_HYDROLOGY",
+            "CREATE_3D_VIEWER",
+        ),
+    ),
+    "mining": (
+        "Khai khoáng / cơ sở hạ tầng",
+        (
+            "CREATE_SLOPE",
+            "CREATE_ASPECT",
+            "CREATE_HILLSHADE",
+            "CREATE_CONTOURS",
+            "CREATE_SPOT_ELEVATIONS",
+        ),
+    ),
+}

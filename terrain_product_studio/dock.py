@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+from datetime import datetime, timezone
 
 from qgis.PyQt.QtCore import QDir, QCoreApplication, QUrl, Qt
 from qgis.PyQt.QtGui import (
@@ -31,6 +32,8 @@ from qgis.PyQt.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -55,11 +58,13 @@ from qgis.core import (
 from qgis.gui import QgsMapLayerComboBox
 
 from .core.dem_info import format_dem_report, inspect_dem_layer
+from .core.export_3d import export_obj, export_stl
+from .core.history import append_history, load_history
 from .core.intelligence_report import generate_intelligence_report
 from .core.layers import add_terrain_results
 from .core.layouts import create_terrain_layout
 from .core.math_utils import sanitize_prefix
-from .core.presets import CARTOGRAPHY_PRESETS, TERRAIN_PALETTES
+from .core.presets import CARTOGRAPHY_PRESETS, INDUSTRY_PRESETS, TERRAIN_PALETTES
 from .core.web_3d_viewer import generate_3d_web_viewer
 
 
@@ -236,6 +241,7 @@ class TerrainStudioDock(QDockWidget):
         tab = QWidget()
         layout = QGridLayout(tab)
         self.products = {}
+        self._product_labels = {}
         definitions = (
             ("CREATE_COLOR_RELIEF", self.tr("Elevation color relief"), True),
             ("CREATE_HILLSHADE", self.tr("Hillshade (single light)"), False),
@@ -257,6 +263,13 @@ class TerrainStudioDock(QDockWidget):
             ("CREATE_PROFILE_CURVATURE", self.tr("Profile curvature (flow acceleration)"), False),
             ("CREATE_PLANFORM_CURVATURE", self.tr("Planform curvature (flow convergence)"), False),
         )
+        # Industry preset combo: one click ticks a whole job-specific set,
+        # leaving every checkbox editable afterwards.
+        self.industry_combo = QComboBox()
+        self.industry_combo.addItem(self.tr("Custom selection"), "")
+        for key, (label, _) in INDUSTRY_PRESETS.items():
+            self.industry_combo.addItem(label, key)
+        layout.addWidget(self.industry_combo, 0, 0, 1, 2)
         # Two-column compact grid: halves the Products tab height and keeps
         # the whole dock short enough that the Run button rarely needs scrolling.
         # QCheckBox cannot wrap text, so each item pairs a bare checkbox with a
@@ -273,7 +286,8 @@ class TerrainStudioDock(QDockWidget):
             item_row.addWidget(checkbox)
             item_row.addWidget(item_label, 1)
             self.products[key] = checkbox
-            layout.addWidget(item, index // 2, index % 2)
+            self._product_labels[key] = label
+            layout.addWidget(item, 1 + index // 2, index % 2)
         layout.setColumnStretch(1, 1)
         note = QLabel(
             self.tr(
@@ -285,8 +299,8 @@ class TerrainStudioDock(QDockWidget):
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: #8a8a8a; font-size: 11px; margin-top: 8px;")
-        layout.addWidget(note, (len(definitions) - 1) // 2 + 1, 0, 1, 2)
-        last_row = (len(definitions) - 1) // 2 + 1
+        layout.addWidget(note, 2 + (len(definitions) - 1) // 2, 0, 1, 2)
+        last_row = 2 + (len(definitions) - 1) // 2
         layout.setRowStretch(last_row, 1)
         return tab
 
@@ -525,6 +539,25 @@ class TerrainStudioDock(QDockWidget):
         weight_row.addWidget(self.multi_hazard_weight_twi, 1)
         weight_row.addWidget(self.multi_hazard_weight_slope, 1)
         layout.addRow(weight_row)
+
+        self.z_scale_spin = QDoubleSpinBox()
+        self.z_scale_spin.setRange(0.001, 100000.0)
+        self.z_scale_spin.setDecimals(3)
+        self.z_scale_spin.setValue(1.0)
+        self.z_scale_spin.setToolTip(self.tr("Vertical exaggeration applied to the printed model"))
+        self.base_thickness_spin = QDoubleSpinBox()
+        self.base_thickness_spin.setRange(0.0, 100000.0)
+        self.base_thickness_spin.setDecimals(3)
+        self.base_thickness_spin.setValue(0.0)
+        self.base_thickness_spin.setToolTip(self.tr("Solid base plate added below the lowest elevation (0 = surface only)"))
+        self.stl_button = QPushButton(self.tr("Export 3D print model (STL)"))
+        self.obj_button = QPushButton(self.tr("OBJ"))
+        export_row = QHBoxLayout()
+        export_row.addWidget(self.z_scale_spin, 1)
+        export_row.addWidget(self.base_thickness_spin, 1)
+        export_row.addWidget(self.stl_button, 2)
+        export_row.addWidget(self.obj_button, 1)
+        layout.addRow(export_row)
         return tab
 
     def _create_report_tab(self):
@@ -539,6 +572,14 @@ class TerrainStudioDock(QDockWidget):
         tab_actions.addWidget(self.tab_open_3d_button)
         tab_actions.addWidget(self.tab_open_report_button)
         layout.addLayout(tab_actions)
+
+        history_label = QLabel(self.tr("Recent runs — click to open the output folder and report"))
+        history_label.setStyleSheet("color: #8a8a8a; font-size: 11px; margin-top: 6px;")
+        layout.addWidget(history_label)
+        self.history_list = QListWidget()
+        self.history_list.setWordWrap(True)
+        self.history_list.setMaximumHeight(140)
+        layout.addWidget(self.history_list)
 
         self.report_edit = QPlainTextEdit()
         self.report_edit.setReadOnly(True)
@@ -570,6 +611,10 @@ class TerrainStudioDock(QDockWidget):
         self.open_report_button.clicked.connect(self._open_report)
         self.tab_open_3d_button.clicked.connect(self._open_3d_map)
         self.tab_open_report_button.clicked.connect(self._open_report)
+        self.industry_combo.currentIndexChanged.connect(self._apply_industry_preset)
+        self.stl_button.clicked.connect(lambda: self._export_3d_mesh("stl"))
+        self.obj_button.clicked.connect(lambda: self._export_3d_mesh("obj"))
+        self.history_list.itemClicked.connect(self._open_history_entry)
         self.docs_button.clicked.connect(self._open_online_docs)
         self.extent_combo.currentIndexChanged.connect(self._on_extent_mode_changed)
         self.extent_layer_combo.layerChanged.connect(self._on_extent_mode_changed)
@@ -848,6 +893,92 @@ class TerrainStudioDock(QDockWidget):
     def _on_tab_changed(self, index):
         if index == self.cartography_tab_index and not self._fonts_populated:
             self._populate_fonts()
+        if index == self.report_tab_index:
+            self._reload_history()
+
+    def _apply_industry_preset(self, index):
+        """Uncheck everything, then tick the selected industry's products."""
+        key = self.industry_combo.currentData()
+        if not key:
+            return
+        for checkbox in self.products.values():
+            checkbox.setChecked(False)
+        for product_key in INDUSTRY_PRESETS[key][1]:
+            if product_key == "CREATE_HYDROLOGY":
+                self.hydrology_check.setChecked(True)
+                continue
+            checkbox = self.products.get(product_key)
+            if checkbox is not None:
+                checkbox.setChecked(True)
+
+    def _export_3d_mesh(self, fmt):
+        """Export the current DEM as a binary STL or OBJ mesh."""
+        layer = self.dem_combo.currentLayer()
+        if layer is None or not layer.isValid():
+            QMessageBox.warning(
+                self, self.tr("3D Export"),
+                self.tr("Select a valid DEM layer first."),
+            )
+            return
+        dem_path = layer.source().split("|")[0]
+        folder = self.output_edit.text().strip() or QDir.homePath()
+        default_name = f"{sanitize_prefix(self.prefix_edit.text())}_3d_print.{fmt}"
+        path, _ = QFileDialog.getSaveFileName(
+            self, self.tr("Export 3D print model"), os.path.join(folder, default_name),
+            self.tr(f"{fmt.upper()} model (*.{fmt})"),
+        )
+        if not path:
+            return
+        try:
+            if fmt == "stl":
+                triangles = export_stl(
+                    dem_path, path,
+                    z_scale=self.z_scale_spin.value(),
+                    base_thickness_m=self.base_thickness_spin.value(),
+                )
+            else:
+                triangles = export_obj(
+                    dem_path, path,
+                    z_scale=self.z_scale_spin.value(),
+                    base_thickness_m=self.base_thickness_spin.value(),
+                )
+        except Exception as err:
+            QMessageBox.warning(self, self.tr("3D Export"), f"{self.tr('Could not export 3D model')}: {err}")
+            return
+        self.iface.messageBar().pushSuccess(
+            "Terrain Product Studio", f"{self.tr('Exported')} {triangles} {self.tr('triangles to')} {path}"
+        )
+
+    def _reload_history(self):
+        try:
+            user_role = Qt.ItemDataRole.UserRole
+        except AttributeError:
+            user_role = getattr(Qt, "UserRole")
+        self.history_list.clear()
+        for entry in load_history():
+            when = str(entry.get("timestamp", ""))[:19].replace("T", " ")
+            folder = entry.get("folder", "")
+            prefix = entry.get("prefix", "")
+            products = ", ".join(entry.get("products", []))
+            item = QListWidgetItem(f"{when}  ·  {prefix or '—'}\n{folder}\n{products}")
+            item.setData(user_role, entry)
+            self.history_list.addItem(item)
+
+    def _open_history_entry(self, item):
+        """Open the run's output folder and its intelligence report."""
+        try:
+            user_role = Qt.ItemDataRole.UserRole
+        except AttributeError:
+            user_role = getattr(Qt, "UserRole")
+        entry = item.data(user_role)
+        if not isinstance(entry, dict):
+            return
+        folder = entry.get("folder", "")
+        if os.path.isdir(folder):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+        report = entry.get("report", "")
+        if report and os.path.exists(str(report)):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(report)))
 
     def _populate_fonts(self):
         """Scan system fonts once, only when the Layout tab is first opened."""
@@ -1231,6 +1362,22 @@ class TerrainStudioDock(QDockWidget):
             self.open_report_button.setEnabled(True)
             self.tab_open_report_button.setEnabled(True)
             self.report_edit.appendPlainText(f"📊 Topographic Intelligence Report: {intel}")
+
+        bundle_path = str(final_results.get("BUNDLE", ""))
+        append_history(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "folder": self.output_edit.text().strip(),
+                "prefix": sanitize_prefix(self.prefix_edit.text()),
+                "products": [
+                    self._product_labels.get(key, key)
+                    for key, checkbox in self.products.items()
+                    if checkbox.isChecked()
+                ],
+                "report": str(intel) if intel and os.path.exists(str(intel)) else "",
+                "bundle": bundle_path if bundle_path and os.path.exists(bundle_path) else "",
+            }
+        )
 
         self.iface.messageBar().pushSuccess(
             "Terrain Product Studio", f"{self.tr('Successfully built and loaded')} {loaded} {self.tr('terrain layers.')}{layout_message}"

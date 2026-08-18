@@ -60,6 +60,38 @@ for height in (680, 520, 460):
     if run_bottom > content_height:
         failures.append("Run button bottom exceeds scroll content")
 
+# M4: industry presets tick the right products
+expected_presets = 5  # Custom + 4 industries
+if dock.industry_combo.count() != expected_presets:
+    failures.append(f"industry_combo has {dock.industry_combo.count()} items, expected {expected_presets}")
+if dock.industry_combo.currentData():
+    failures.append("industry_combo should default to Custom selection")
+# Disaster preset: landslide + multi-hazard + hydrology (produces TWI) + 3D viewer
+disaster_index = dock.industry_combo.findData("disaster")
+if disaster_index < 0:
+    failures.append("disaster industry preset missing")
+else:
+    dock.industry_combo.setCurrentIndex(disaster_index)
+    for key in ("CREATE_LANDSLIDE", "CREATE_MULTIHAZARD", "CREATE_3D_VIEWER"):
+        if not dock.products[key].isChecked():
+            failures.append(f"disaster preset did not tick {key}")
+    if not dock.hydrology_check.isChecked():
+        failures.append("disaster preset did not tick hydrology")
+    if any(cb.isChecked() for key, cb in dock.products.items() if key not in
+           ("CREATE_LANDSLIDE", "CREATE_MULTIHAZARD", "CREATE_3D_VIEWER")):
+        failures.append("disaster preset left unexpected products ticked")
+    dock.industry_combo.setCurrentIndex(0)  # back to custom
+
+# M4: 3D export controls present
+for attr in ("stl_button", "obj_button", "z_scale_spin", "base_thickness_spin"):
+    if not hasattr(dock, attr):
+        failures.append(f"missing 3D export control {attr}")
+
+# M4: recent-runs list loads without crashing
+dock._reload_history()
+if dock.history_list.count() < 0:
+    failures.append("history_list count negative")
+
 # Screenshots at representative sizes for visual inspection
 os.makedirs(os.path.join(workspace, "dist"), exist_ok=True)
 for height, name in ((680, "dock_full"), (520, "dock_compact")):
