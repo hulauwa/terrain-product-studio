@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.0 — 2026-08-18
+
+Cartography & workflow release: a real palette library, cleaner USA-standard maps, and a shareable QGIS project.
+
+- **20-map palette library**: the color-relief combo now offers 20 ramps grouped **Classic** (USGS Classic, Natural Earth, Swiss Topo), **Artistic** (Imhof, Vintage Atlas, Copper Relief), **Environment** (Alpine, Desert, Tropical, Arctic), **Scientific** (Viridis, Turbo, Grayscale, Spectral) and **Dark Terrain** — six true dark ramps (Midnight Terrain, Dark Forest, Dark Alpine, Dark Copper, Dark Volcano, Dark Oceanic) whose elevation-anchored stops are written verbatim to the gdaldem color table, so they keep their intended contrast instead of just inverting the light colors.
+- **Dark map styling**: selecting a Dark Terrain palette auto-switches the cartography theme to **Night Dark** — hillshade at 45% opacity, deep-ink canvas background `#090B0D`, cyan-gray contour lines with subdued alpha, cyan river network, all persisted into the saved project. Picking a light palette only reverts if the user had not chosen a manual light theme.
+- **Peak-point density control**: new *Peak point threshold (% of relief)* setting — only summits whose elevation lies in the top N% of the terrain relief (default 80%) become spot-elevation markers; set to 0 (Off) to keep every local peak.
+- **QGIS project creation**: new *Create QGIS project (.qgz)* option saves the current project with all layers, styling, groups and the print layout into the output folder — ready to reopen or share. The Layout Designer is **no longer auto-opened** after processing; the layout is created and saved, and the user opens it manually.
+- **Default basemap**: generated layers default to a minimal visible stack (color relief, multi-hillshade, contours, peak points); hydrology (streams, ridges) and analytical groups load hidden for a clean first view.
+- **USA-standard map logic**: grid annotations sit outside the map frame and always read horizontal (never rotated with the frame edge); raster layers carry no labels (labeling stays on contour / spot-elevation vectors only); river colors reworked — light themes use a deeper hydro-blue ramp, dark themes a cyan ramp; contour line weights increased slightly (0.15 / 0.35 / 0.55 mm) for a clearer print.
+
 ## 2.0.0 — 2026-08-18
 
 Publication-grade release: smarter setup, deeper analysis, and shareable outputs.

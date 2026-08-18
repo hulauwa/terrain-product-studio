@@ -12,10 +12,14 @@ def extract_spot_elevations(
     output_path: str,
     min_prominence_m: float = 15.0,
     window_size: int = 15,
+    threshold_pct: float = 0.0,
 ) -> int:
     """Extract local elevation peak points from DEM and save to GeoPackage.
 
-    Returns the count of extracted spot elevation features.
+    ``threshold_pct`` keeps only peaks whose elevation lies in the top
+    ``threshold_pct`` % of the relief (``min_elev + pct/100 * (max - min)``);
+    ``0`` keeps every morphologically isolated peak. Returns the count of
+    extracted spot elevation features.
     """
 
     import numpy as np
@@ -70,6 +74,14 @@ def extract_spot_elevations(
                     count += 1
             local_mean = (accum / max(1, count)).astype(np.float32)
             is_peak &= (elevation - local_mean) >= min_prominence_m
+
+    if threshold_pct > 0:
+        valid_values = elevation[valid]
+        if valid_values.size:
+            min_elev = float(np.min(valid_values))
+            max_elev = float(np.max(valid_values))
+            cutoff = min_elev + (float(threshold_pct) / 100.0) * (max_elev - min_elev)
+            is_peak &= elevation >= cutoff
 
     peak_rows, peak_cols = np.nonzero(is_peak)
 

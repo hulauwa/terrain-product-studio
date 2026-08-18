@@ -31,10 +31,10 @@
 ## 🌟 Key Highlights
 
 - **Zero Data Distortion**: Raw analytical derivatives maintain real floating-point physical units (degrees, radians, meters, index scores) while cartographic layers receive styling.
-- **Smart Setup Assistant**: Contour interval suggested from AOI scale and relief (snapped to the standard `1/2/2.5/5/10/20/25/50/100` table) with one-click Apply; palette gradient thumbnails; **Dark / Night** theme with live swatch preview.
+- **Smart Setup Assistant**: Contour interval suggested from AOI scale and relief (snapped to the standard `1/2/2.5/5/10/20/25/50/100` table) with one-click Apply; **20-map palette library** with gradient thumbnails grouped Classic / Artistic / Environment / Scientific / **Dark Terrain** (six true dark ramps with elevation-anchored stops that auto-switch to the Night Dark cartography theme); live swatch preview.
 - **Continuous Strahler Polyline Network**: Advanced D8 topological tracing extracts smooth, continuous vector streams with rich hydraulic attributes (`ORDER`, `LENGTH_M`, `AREA_HA`) — now with optional Chaikin / Douglas–Peucker cartographic smoothing.
 - **Multi-Hazard Composite & Shareable Bundle**: Weighted landslide × slope × TWI composite index, exported together with every raster and vector layer into **one GeoPackage** (lossless PNG tiles for byte rasters, OGC 2D-gridded-coverage for float rasters).
-- **3D Printing & Workflow**: STL/OBJ mesh export (auto-downsampling, z exaggeration, watertight base plate), one-click industry presets (Urban / Agriculture / Disaster / Mining), and a run-history journal (last 20 jobs reopenable from the Inspect tab).
+- **3D Printing & Workflow**: STL/OBJ mesh export (auto-downsampling, z exaggeration, watertight base plate), one-click industry presets (Urban / Agriculture / Disaster / Mining), a run-history journal (last 20 jobs reopenable from the Inspect tab), and one-click **QGIS project (.qgz)** export that saves every layer, style, group and print layout into the output folder.
 - **Real-Time 3D WebGIS Studio (`.html`)**: Self-contained WebGL 3D terrain viewer with flood simulation, live profile cross-sections, solar shadow time-lapse, drone flythrough, and AI Q&A assistant.
 - **Topographic Intelligence Report (`.html`)**: Executive summary dashboard featuring SVG Aspect Rose radar charts, hypsometric histograms, and TCVN geotechnical matrices.
 - **Dual QGIS 3 (Qt5) & QGIS 4 (Qt6) Compatibility**: Fully verified against scoped enum architectures and modern Python 3.12+ environments.
@@ -60,11 +60,7 @@
 ### 2. Hydrology & River Network
 
 - **D8 Flow Direction & Flow Accumulation**: Resolves single-flow direction routing and contributing upslope drainage area ($ha, km^2$).
-- **Continuous Strahler Polyline River Network**:
-  - *Order 1 (Headwater Stream)*: Thin hairline $0.28\text{ mm}$, light cyan `#6baed6`.
-  - *Order 2 (Secondary Tributary)*: Medium $0.52\text{ mm}$, intermediate blue `#3182bd`.
-  - *Order 3 (Sub-River Channel)*: Bold $0.85\text{ mm}$, navy `#08519c`.
-  - *Order 4+ (Major River Channel)*: Strong $1.30\text{ mm}$, deep oceanic `#08306b`.
+- **Continuous Strahler Polyline River Network**: ordered by stream class with a clear hydro-blue ramp on light themes (`#74c0e6` → `#0b4489`) and a cyan ramp on dark themes (`#9be1ff` → `#0f7fc9`) so rivers always read against the terrain.
 - **Catchment Watershed Basins**: Polygonized micro-basin delineations with automated color palette assignment.
 - **Topographic Wetness Index (TWI)**:
   $$\text{TWI} = \ln\left(\frac{A}{\tan \beta}\right)$$
@@ -88,11 +84,14 @@
 ### 4. Publication-Grade Cartography
 
 - **3-Tier USGS Topographic Contours**:
-  - *Minor Contours*: $0.18\text{ mm}$ fine lines at standard interval.
-  - *Index Contours*: $0.42\text{ mm}$ bold lines with elevation labels every 5th line.
-  - *Master Contours*: $0.65\text{ mm}$ prominent boundary lines.
-- **Spot Elevation Peaks**: Morphologically isolated local summits filtered by minimum prominence and col distance, styled with elevation badges.
+  - *Minor Contours*: $0.15\text{ mm}$ fine lines at standard interval.
+  - *Index Contours*: $0.35\text{ mm}$ bold lines with elevation labels every 5th line.
+  - *Master Contours*: $0.55\text{ mm}$ prominent boundary lines.
+- **20-Map Palette Library**: color relief from **Classic** (USGS Classic, Natural Earth, Swiss Topo), **Artistic** (Imhof, Vintage Atlas, Copper Relief), **Environment** (Alpine, Desert, Tropical, Arctic), **Scientific** (Viridis, Turbo, Grayscale, Spectral) and **Dark Terrain** (Midnight Terrain, Dark Forest, Dark Alpine, Dark Copper, Dark Volcano, Dark Oceanic) — dark ramps use elevation-anchored stops and pair with the Night Dark theme (45% hillshade, `#090B0D` canvas, cyan contours & rivers).
+- **Spot Elevation Peaks**: Morphologically isolated local summits filtered by minimum prominence and col distance, plus a **relief-percent threshold** (default top 80% of the elevation range) that keeps only the summits worth labeling; styled with elevation badges.
 - **Hypsometric Color Relief & Multidirectional Hillshade**: 4-azimuth blended lighting ($225^\circ, 270^\circ, 315^\circ, 360^\circ$) eliminates directional shadow bias.
+- **USA-Standard Map Logic**: grid annotations sit outside the map frame and always read horizontal; raster layers never carry labels (labeling stays on contour / spot-elevation vectors); cartographic layer names follow USGS naming conventions.
+- **QGIS Project Export**: one click writes the current project as a `.qgz` into the output folder with all layers, styles, groups and the print layout — the Layout Designer itself is created but left for you to open manually.
 - **Cartographic Smoothing**: Chaikin corner-cutting (rounding) and Douglas–Peucker simplification for both contours and river networks — a `SMOOTHING` combo on the Products tab.
 
 ---
@@ -149,11 +148,11 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 ## 🚀 Installation
 
 ### Option A: Install via QGIS Plugin Manager
-1. Download the latest `terrain_product_studio-2.0.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Download the latest `terrain_product_studio-2.1.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Open QGIS $\rightarrow$ **Plugins** $\rightarrow$ **Manage and Install Plugins...**
 3. Select **Install from ZIP** $\rightarrow$ choose the downloaded `.zip` file $\rightarrow$ Click **Install Plugin**.
 
-> **v2.0.0**: publication-grade release — smart setup assistant (suggested contour intervals, palette thumbnails, Dark/Night theme), Chaikin/Douglas–Peucker smoothing for contours & rivers, geomorphon/SPI/STI products, weighted multi-hazard composite index, single-GeoPackage bundle, STL/OBJ 3D-print export, industry presets and run history. (v1.2.0 fixed every finding from the QGIS Plugin Repository security scan.)
+> **v2.1.0**: cartography & workflow release — 20-map palette library with a true **Dark Terrain** group (elevation-anchored dark ramps that auto-switch to the Night Dark theme), peak-point relief-percent threshold, one-click **QGIS project (.qgz)** export, layouts no longer auto-open, minimal default basemap, hydro-blue/cyan river ramps, clearer contours, and USA-standard grid labels (outside frame, horizontal). (v2.0.0 added the smart setup assistant, Chaikin/Douglas–Peucker smoothing, geomorphon/SPI/STI, multi-hazard composite, GeoPackage bundle, STL/OBJ export, industry presets and run history.)
 
 ### Option B: Manual Installation
 Copy the `terrain_product_studio` directory into your QGIS active profile plugin folder:
@@ -170,10 +169,10 @@ Copy the `terrain_product_studio` directory into your QGIS active profile plugin
 3. **2 · Processing Extent**: Choose between *Full DEM*, *Current Map Canvas*, or a specific *Boundary Layer*.
 4. **3 · Output**: Specify your destination folder (defaults to plugin's `temp/` folder) and custom file prefix.
 5. **Tabs**:
-   - **Products**: Pick an **industry preset** (Urban / Agriculture / Disaster / Mining) or check products manually; configure smoothing and the composite-index weights.
-   - **Contours**: Adjust contour interval and index multiplier.
+   - **Products**: Pick an **industry preset** (Urban / Agriculture / Disaster / Mining) or check products manually; configure smoothing and the composite-index weights; tick **Create QGIS project (.qgz)** to save the styled project next to the outputs.
+   - **Contours**: Adjust contour interval and index multiplier, and the **peak point threshold (% of relief)** — only summits in the top N% of the elevation range become spot markers (0 = Off).
    - **Hydrology**: Enable drainage extraction and set stream initiation threshold ($ha$).
-   - **Layout**: Configure automated print layout generation and PDF/PNG export.
+   - **Layout**: Configure automated print layout generation and PDF/PNG export. The layout is created and saved into the project, but **no longer opens automatically** — open it from the Layouts manager whenever you are ready.
    - **Settings**: Z-exaggeration and base thickness for the **STL/OBJ 3D-print export**.
    - **Inspect**: Reopen the output folder / intelligence report of any of the last 20 runs.
 6. Click **Build Product Package**.

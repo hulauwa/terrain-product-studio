@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 
+from qgis.PyQt.QtGui import QColor
 from qgis.core import QgsProject, QgsRasterLayer, QgsVectorLayer
 
-from .presets import OUTPUT_LABELS
+from .presets import CARTOGRAPHY_PRESETS, OUTPUT_LABELS
 from .styles import (
     apply_aspect_style,
     apply_basin_style,
@@ -43,6 +44,8 @@ def _add_raster(project, group, key, path, visible=True):
     project.addMapLayer(layer, False)
     node = group.addLayer(layer)
     node.setItemVisibilityChecked(visible)
+    # Raster layers never carry text labels — labeling is only ever applied
+    # to the vector contour / spot-elevation layers (USGS convention).
     return layer, node
 
 
@@ -60,6 +63,11 @@ def add_terrain_results(
     project = QgsProject.instance()
     root = project.layerTreeRoot()
     package_group = root.insertGroup(0, "Terrain Product Studio")
+
+    # Dark Terrain maps: stronger hillshade and a deep ink canvas background
+    # so NoData / background reads as #090B0D instead of white.
+    dark = bool(CARTOGRAPHY_PRESETS.get(cartography_preset, {}).get("dark"))
+    hillshade_opacity = 0.45 if dark else None
     
     # Order groups so top-most visual layers (vectors) are at the top of the Layer Tree panel
     hydro_group = package_group.addGroup("01 · Hydrology")
@@ -152,7 +160,9 @@ def add_terrain_results(
         ridges = QgsVectorLayer(path, OUTPUT_LABELS["RIDGES"], "ogr")
         if ridges.isValid():
             project.addMapLayer(ridges, False)
-            hydro_group.addLayer(ridges)
+            node = hydro_group.addLayer(ridges)
+            # Working-data hydrology: loaded but hidden in the default basemap.
+            node.setItemVisibilityChecked(False)
             layers["RIDGES"] = ridges
             loaded += 1
         else:
@@ -163,7 +173,8 @@ def add_terrain_results(
         streams = QgsVectorLayer(path, OUTPUT_LABELS["STREAMS"], "ogr")
         if streams.isValid():
             project.addMapLayer(streams, False)
-            hydro_group.insertLayer(0, streams)
+            node = hydro_group.insertLayer(0, streams)
+            node.setItemVisibilityChecked(False)
             layers["STREAMS"] = streams
             loaded += 1
         else:
@@ -174,7 +185,8 @@ def add_terrain_results(
         smooth_streams = QgsVectorLayer(path, OUTPUT_LABELS["STREAMS_SMOOTH"], "ogr")
         if smooth_streams.isValid():
             project.addMapLayer(smooth_streams, False)
-            hydro_group.insertLayer(1, smooth_streams)
+            node = hydro_group.insertLayer(1, smooth_streams)
+            node.setItemVisibilityChecked(False)
             layers["STREAMS_SMOOTH"] = smooth_streams
             loaded += 1
         else:
@@ -185,7 +197,11 @@ def add_terrain_results(
         base_group.removeChildNode(nodes["COLOR_RELIEF"])
     for key in ("HILLSHADE", "MULTI_HILLSHADE"):
         if key in layers:
-            apply_hillshade_style(layers[key], 0.32 if key == "MULTI_HILLSHADE" else 0.38)
+            if hillshade_opacity is None:
+                opacity = 0.32 if key == "MULTI_HILLSHADE" else 0.38
+            else:
+                opacity = hillshade_opacity
+            apply_hillshade_style(layers[key], opacity)
     if "SLOPE" in layers:
         apply_slope_style(layers["SLOPE"])
     if "ASPECT" in layers:
@@ -245,6 +261,11 @@ def add_terrain_results(
 
     analysis_group.setItemVisibilityChecked(False)
     quality_group.setItemVisibilityChecked(False)
+    if dark:
+        try:
+            project.setBackgroundColor(QColor("#090b0d"))
+        except (AttributeError, TypeError):
+            pass  # QgsProject.setBackgroundColor is QGIS 3.26+; keep defaults
     if return_layers:
         return loaded, failed, layers
     return loaded, failed

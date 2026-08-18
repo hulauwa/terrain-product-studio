@@ -63,8 +63,16 @@ from .core.history import append_history, load_history
 from .core.intelligence_report import generate_intelligence_report
 from .core.layers import add_terrain_results
 from .core.layouts import create_terrain_layout
-from .core.math_utils import sanitize_prefix
-from .core.presets import CARTOGRAPHY_PRESETS, INDUSTRY_PRESETS, TERRAIN_PALETTES
+from .core.math_utils import sanitize_prefix, unique_path
+from .core.presets import (
+    CARTOGRAPHY_PRESETS,
+    DEFAULT_CARTOGRAPHY,
+    DEFAULT_PALETTE,
+    INDUSTRY_PRESETS,
+    PALETTE_GROUPS,
+    PALETTE_ORDER,
+    TERRAIN_PALETTES,
+)
 from .core.web_3d_viewer import generate_3d_web_viewer
 
 
@@ -167,6 +175,17 @@ class TerrainStudioDock(QDockWidget):
         output_layout.addWidget(self.output_button, 0, 2)
         output_layout.addWidget(QLabel(self.tr("File prefix")), 1, 0)
         output_layout.addWidget(self.prefix_edit, 1, 1, 1, 2)
+        self.create_project_check = QCheckBox(
+            self.tr("Create QGIS project (.qgz) in output folder")
+        )
+        self.create_project_check.setChecked(True)
+        self.create_project_check.setToolTip(
+            self.tr(
+                "Saves the current project with all generated layers, styling, "
+                "groups and the print layout as a .qgz next to the outputs."
+            )
+        )
+        output_layout.addWidget(self.create_project_check, 2, 0, 1, 3)
         outer.addWidget(output_group)
 
         self.tabs = QTabWidget()
@@ -242,24 +261,26 @@ class TerrainStudioDock(QDockWidget):
         layout = QGridLayout(tab)
         self.products = {}
         self._product_labels = {}
+        # Default setup ticks only a few basemap layers (color relief, hillshade,
+        # spot peaks) — everything else is opt-in via Quick Basemap / Select All.
         definitions = (
             ("CREATE_COLOR_RELIEF", self.tr("Elevation color relief"), True),
             ("CREATE_HILLSHADE", self.tr("Hillshade (single light)"), False),
             ("CREATE_MULTI_HILLSHADE", self.tr("Multidirectional hillshade"), True),
-            ("CREATE_SLOPE", self.tr("Slope (degrees)"), True),
-            ("CREATE_ASPECT", self.tr("Aspect (orientation)"), True),
-            ("CREATE_TRI", self.tr("Terrain Ruggedness Index (TRI)"), True),
-            ("CREATE_TPI", self.tr("Topographic Position Index (TPI)"), True),
-            ("CREATE_ROUGHNESS", self.tr("Roughness"), True),
+            ("CREATE_SLOPE", self.tr("Slope (degrees)"), False),
+            ("CREATE_ASPECT", self.tr("Aspect (orientation)"), False),
+            ("CREATE_TRI", self.tr("Terrain Ruggedness Index (TRI)"), False),
+            ("CREATE_TPI", self.tr("Topographic Position Index (TPI)"), False),
+            ("CREATE_ROUGHNESS", self.tr("Roughness"), False),
             ("CREATE_SPOT_ELEVATIONS", self.tr("Spot elevation peaks (markers)"), True),
-            ("CREATE_SUITABILITY", self.tr("Construction suitability (TCVN)"), True),
-            ("CREATE_LANDSLIDE", self.tr("Landslide hazard & RUSLE LS"), True),
-            ("CREATE_GEOMORPHON", self.tr("Geomorphon terrain forms (10 classes)"), True),
-            ("CREATE_SPI", self.tr("Stream Power Index (SPI)"), True),
-            ("CREATE_STI", self.tr("Sediment Transport Index (STI)"), True),
-            ("CREATE_MULTIHAZARD", self.tr("Multi-hazard composite (landslide + TWI + slope)"), True),
-            ("CREATE_3D_VIEWER", self.tr("Interactive 3D Web Terrain Viewer (HTML)"), True),
-            ("CREATE_INTELLIGENCE_REPORT", self.tr("Topographic Intelligence Report (HTML)"), True),
+            ("CREATE_SUITABILITY", self.tr("Construction suitability (TCVN)"), False),
+            ("CREATE_LANDSLIDE", self.tr("Landslide hazard & RUSLE LS"), False),
+            ("CREATE_GEOMORPHON", self.tr("Geomorphon terrain forms (10 classes)"), False),
+            ("CREATE_SPI", self.tr("Stream Power Index (SPI)"), False),
+            ("CREATE_STI", self.tr("Sediment Transport Index (STI)"), False),
+            ("CREATE_MULTIHAZARD", self.tr("Multi-hazard composite (landslide + TWI + slope)"), False),
+            ("CREATE_3D_VIEWER", self.tr("Interactive 3D Web Terrain Viewer (HTML)"), False),
+            ("CREATE_INTELLIGENCE_REPORT", self.tr("Topographic Intelligence Report (HTML)"), False),
             ("CREATE_PROFILE_CURVATURE", self.tr("Profile curvature (flow acceleration)"), False),
             ("CREATE_PLANFORM_CURVATURE", self.tr("Planform curvature (flow convergence)"), False),
         )
@@ -335,6 +356,20 @@ class TerrainStudioDock(QDockWidget):
         layout.addRow(self.tr("Contour interval"), self.contour_interval)
         layout.addRow(self.tr("Index multiplier (every Nth line)"), self.index_multiplier)
         layout.addRow(self.tr("Index contour interval"), self.index_preview)
+        self.spot_pct_spin = QSpinBox()
+        self.spot_pct_spin.setRange(0, 100)
+        self.spot_pct_spin.setValue(80)
+        self.spot_pct_spin.setSuffix(" %")
+        self.spot_pct_spin.setSpecialValueText(self.tr("Off"))
+        self.spot_pct_spin.setToolTip(
+            self.tr(
+                "Only keep peak points whose elevation is in the top this many "
+                "percent of the terrain relief. 0 keeps every local peak."
+            )
+        )
+        layout.addRow(
+            self.tr("Peak point threshold (% of relief)"), self.spot_pct_spin
+        )
         self.smoothing_combo = QComboBox()
         self.smoothing_combo.addItems(
             [self.tr("Off"), self.tr("Light"), self.tr("Medium"), self.tr("Heavy")]
@@ -362,16 +397,16 @@ class TerrainStudioDock(QDockWidget):
         tab = QWidget()
         layout = QFormLayout(tab)
         self.hydrology_check = QCheckBox(self.tr("Extract continuous Strahler river network"))
-        self.hydrology_check.setChecked(True)
+        self.hydrology_check.setChecked(False)
         self.stream_threshold = QDoubleSpinBox()
         self.stream_threshold.setDecimals(2)
         self.stream_threshold.setRange(0.01, 1000000000.0)
         self.stream_threshold.setValue(25.0)
         self.stream_threshold.setSuffix(" ha")
         self.twi_check = QCheckBox(self.tr("Topographic Wetness Index (TWI)"))
-        self.twi_check.setChecked(True)
+        self.twi_check.setChecked(False)
         self.basins_check = QCheckBox(self.tr("Save watershed basin raster"))
-        self.basins_check.setChecked(True)
+        self.basins_check.setChecked(False)
         layout.addRow(self.hydrology_check)
         layout.addRow(self.tr("Minimum contributing area"), self.stream_threshold)
         self.stream_smoothing_combo = QComboBox()
@@ -397,6 +432,9 @@ class TerrainStudioDock(QDockWidget):
         self.cartography_combo = QComboBox()
         for key, preset in CARTOGRAPHY_PRESETS.items():
             self.cartography_combo.addItem(preset["label"], key)
+        default_index = self.cartography_combo.findData(DEFAULT_CARTOGRAPHY)
+        if default_index >= 0:
+            self.cartography_combo.setCurrentIndex(default_index)
         self.cartography_description = QLabel()
         self.cartography_description.setWordWrap(True)
         self.theme_preview = QLabel()
@@ -440,7 +478,7 @@ class TerrainStudioDock(QDockWidget):
         self.grid_check = QCheckBox(self.tr("Coordinate border and grid"))
         self.grid_check.setChecked(True)
         self.open_layout_check = QCheckBox(self.tr("Open Layout Designer when finished"))
-        self.open_layout_check.setChecked(True)
+        self.open_layout_check.setChecked(False)
         export_row = QWidget()
         export_layout = QHBoxLayout(export_row)
         export_layout.setContentsMargins(0, 0, 0, 0)
@@ -477,10 +515,21 @@ class TerrainStudioDock(QDockWidget):
         self.z_unit_combo = QComboBox()
         self.z_unit_combo.addItems([self.tr("Meters"), self.tr("Feet")])
         self.palette_combo = QComboBox()
-        for key, preset in TERRAIN_PALETTES.items():
-            self.palette_combo.addItem(
-                self._palette_preview(preset["stops"]), preset["label"], key
-            )
+        # Grouped by family with separators, in the same order as the
+        # Processing PALETTE enum (PALETTE_ORDER). Separator entries carry no
+        # user data and are skipped when resolving the algorithm index.
+        for group_index, (group_key, group_label, keys) in enumerate(PALETTE_GROUPS):
+            if group_index > 0:
+                self.palette_combo.insertSeparator(self.palette_combo.count())
+            for key in keys:
+                preset = TERRAIN_PALETTES[key]
+                stops = preset.get("elev_stops") or preset["stops"]
+                self.palette_combo.addItem(
+                    self._palette_preview(stops), preset["label"], key
+                )
+        default_index = self.palette_combo.findData(DEFAULT_PALETTE)
+        if default_index >= 0:
+            self.palette_combo.setCurrentIndex(default_index)
         self.compression_combo = QComboBox()
         self.compression_combo.addItems(["DEFLATE", "ZSTD", "LZW", "NONE"])
         self.auto_reproject_check = QCheckBox(self.tr("Automatically reproject geographic DEM to UTM"))
@@ -599,6 +648,8 @@ class TerrainStudioDock(QDockWidget):
         self.cartography_combo.currentIndexChanged.connect(
             self._on_cartography_preset_changed
         )
+        self._palette_sync_guard = False
+        self.palette_combo.currentIndexChanged.connect(self._on_palette_changed)
         self.create_layout_check.toggled.connect(self._update_layout_controls)
         self.apply_suggestion_button.clicked.connect(self._apply_contour_suggestion)
         self.create_layout_button.clicked.connect(self._create_layout_now)
@@ -781,7 +832,7 @@ class TerrainStudioDock(QDockWidget):
             widget.setEnabled(enabled)
 
     def _on_cartography_preset_changed(self):
-        preset_key = self.cartography_combo.currentData() or "usgs_classic"
+        preset_key = self.cartography_combo.currentData() or DEFAULT_CARTOGRAPHY
         preset = CARTOGRAPHY_PRESETS[preset_key]
         self.cartography_description.setText(preset["description"])
         self.theme_preview.setPixmap(self._theme_preview_pixmap(preset))
@@ -789,7 +840,37 @@ class TerrainStudioDock(QDockWidget):
             self.font_combo.setCurrentText(preset["font"])
         palette_index = self.palette_combo.findData(preset["palette"])
         if palette_index >= 0:
-            self.palette_combo.setCurrentIndex(palette_index)
+            self._palette_sync_guard = True
+            try:
+                self.palette_combo.setCurrentIndex(palette_index)
+            finally:
+                self._palette_sync_guard = False
+
+    def _on_palette_changed(self, index):
+        """Keep the map template coherent with the chosen relief palette.
+
+        A Dark Terrain palette auto-switches the cartography theme to Dark /
+        Night (and its dark styling). A light palette only reverts to the
+        Natural Earth Light default when the current theme is still night_dark
+        — a manually chosen light theme (USGS, Antique, …) is left alone.
+        """
+        if getattr(self, "_palette_sync_guard", False):
+            return
+        palette_key = self.palette_combo.itemData(index)
+        if not palette_key:
+            return  # separator entries carry no data
+        palette = TERRAIN_PALETTES.get(palette_key, {})
+        current = self.cartography_combo.currentData()
+        if palette.get("dark"):
+            target = "night_dark"
+        elif current == "night_dark":
+            target = DEFAULT_CARTOGRAPHY
+        else:
+            return
+        if current != target:
+            target_index = self.cartography_combo.findData(target)
+            if target_index >= 0:
+                self.cartography_combo.setCurrentIndex(target_index)
 
     @staticmethod
     def _preset_color(value):
@@ -800,13 +881,33 @@ class TerrainStudioDock(QDockWidget):
         parts = [int(part) for part in text.split(",")]
         return QColor(*parts)
 
+    def _palette_algorithm_index(self):
+        """Combo index → PALETTE enum index, skipping separator items."""
+        selected = self.palette_combo.itemData(self.palette_combo.currentIndex())
+        try:
+            return PALETTE_ORDER.index(selected)
+        except (TypeError, ValueError):
+            return 0
+
     @staticmethod
     def _palette_preview(stops, width=96, height=20):
-        """Render a TERRAIN_PALETTES stop list as a gradient thumbnail icon."""
+        """Render a TERRAIN_PALETTES stop list as a gradient thumbnail icon.
+
+        Elevation-anchored dark palettes are normalized to 0..1 (Qt gradients
+        reject positions outside that range).
+        """
         pixmap = QPixmap(width, height)
         pixmap.fill(QColor(255, 255, 255, 0))
         painter = QPainter(pixmap)
         gradient = QLinearGradient(0, 0, width, 0)
+        if any(float(position) > 1.0 for position, *_ in stops):
+            low = min(float(position) for position, *_ in stops)
+            high = max(float(position) for position, *_ in stops)
+            span = max(high - low, 1e-9)
+            stops = tuple(
+                ((float(position) - low) / span, red, green, blue)
+                for position, red, green, blue in stops
+            )
         for position, red, green, blue in stops:
             gradient.setColorAt(float(position), QColor(red, green, blue))
         painter.fillRect(0, 0, width, height, QBrush(gradient))
@@ -1058,7 +1159,7 @@ class TerrainStudioDock(QDockWidget):
 
     def _select_quick(self):
         for key, checkbox in self.products.items():
-            checkbox.setChecked(key in {"CREATE_COLOR_RELIEF", "CREATE_MULTI_HILLSHADE", "CREATE_3D_VIEWER", "CREATE_INTELLIGENCE_REPORT"})
+            checkbox.setChecked(key in {"CREATE_COLOR_RELIEF", "CREATE_MULTI_HILLSHADE", "CREATE_SPOT_ELEVATIONS"})
         self.contour_check.setChecked(True)
         self.hydrology_check.setChecked(False)
 
@@ -1082,7 +1183,7 @@ class TerrainStudioDock(QDockWidget):
             "PREFIX": sanitize_prefix(self.prefix_edit.text()),
             "Z_UNIT": self.z_unit_combo.currentIndex(),
             "AUTO_REPROJECT": self.auto_reproject_check.isChecked(),
-            "PALETTE": self.palette_combo.currentIndex(),
+            "PALETTE": self._palette_algorithm_index(),
             "COMPRESSION": self.compression_combo.currentIndex(),
             "VERTICAL_EXAGGERATION": self.vertical_exaggeration.value(),
             "AZIMUTH": self.azimuth.value(),
@@ -1091,6 +1192,7 @@ class TerrainStudioDock(QDockWidget):
             "CREATE_CONTOURS": self.contour_check.isChecked(),
             "CONTOUR_INTERVAL": self.contour_interval.value(),
             "INDEX_MULTIPLIER": self.index_multiplier.value(),
+            "SPOT_PCT": self.spot_pct_spin.value(),
             "SMOOTHING": self.smoothing_combo.currentIndex(),
             "SIMPLIFY_TOLERANCE": self.simplify_tolerance.value(),
             "ACCUMULATION": self._last_accumulation or None,
@@ -1114,7 +1216,7 @@ class TerrainStudioDock(QDockWidget):
 
     def _cartography_config(self):
         return {
-            "preset": self.cartography_combo.currentData() or "usgs_classic",
+            "preset": self.cartography_combo.currentData() or DEFAULT_CARTOGRAPHY,
             "font_family": self.font_combo.currentText() or "Sans Serif",
             "create_layout": self.create_layout_check.isChecked(),
             "layout_name": self.layout_name_edit.text().strip(),
@@ -1130,6 +1232,7 @@ class TerrainStudioDock(QDockWidget):
             "paper_size": self.paper_combo.currentData() or "auto",
             "orientation": self.orientation_combo.currentData() or "auto",
             "export_prefix": sanitize_prefix(self.prefix_edit.text()),
+            "create_project": self.create_project_check.isChecked(),
             "create_hydrology": self.hydrology_check.isChecked(),
             "stream_threshold_ha": self.stream_threshold.value(),
             "create_basins": self.basins_check.isChecked(),
@@ -1347,7 +1450,25 @@ class TerrainStudioDock(QDockWidget):
                     self.iface.openLayoutDesigner(layout)
             except Exception as error:  # keep generated terrain products available
                 self.report_edit.appendPlainText(f"{self.tr('Layout error')}: {error}")
-        
+
+        if config.get("create_project"):
+            try:
+                project_path = unique_path(
+                    os.path.join(self.output_edit.text().strip(), f"{prefix}.qgz")
+                )
+                if QgsProject.instance().write(project_path):
+                    self.report_edit.appendPlainText(
+                        f"{self.tr('QGIS project')}: {project_path}"
+                    )
+                else:
+                    self.report_edit.appendPlainText(
+                        f"{self.tr('QGIS project save failed')}: {project_path}"
+                    )
+            except Exception as error:
+                self.report_edit.appendPlainText(
+                    f"{self.tr('QGIS project save error')}: {error}"
+                )
+
         # Activate 3D Web Viewer & Intelligence Report buttons if generated
         v3d = final_results.get("VIEWER_3D")
         if v3d and os.path.exists(str(v3d)):

@@ -286,6 +286,37 @@ def create_terrain_layout(
         grid.setFramePenSize(0.30)
         grid.setAnnotationEnabled(True)
         grid.setAnnotationPrecision(0 if not reference.crs().isGeographic() else 3)
+        # USGS convention: labels sit outside the map frame, always horizontal
+        # (never rotated with the frame edge). QGIS 4 moved these enums into
+        # the Qgis namespace and made the position a per-side setting.
+        try:
+            for side in (
+                Qgis.MapGridBorderSide.Left,
+                Qgis.MapGridBorderSide.Right,
+                Qgis.MapGridBorderSide.Bottom,
+                Qgis.MapGridBorderSide.Top,
+            ):
+                grid.setAnnotationPosition(
+                    Qgis.MapGridAnnotationPosition.OutsideMapFrame, side
+                )
+            grid.setAnnotationDirection(
+                Qgis.MapGridAnnotationDirection.Horizontal
+            )
+        except AttributeError:  # QGIS 3 / Qt5 class enums
+            try:
+                grid.setAnnotationPosition(
+                    QgsLayoutItemMapGrid.AnnotationPosition.OutsideMapFrame
+                )
+                grid.setAnnotationDirection(
+                    QgsLayoutItemMapGrid.AnnotationDirection.Horizontal
+                )
+            except AttributeError:  # Qt5 unscoped enum fallback
+                grid.setAnnotationPosition(
+                    getattr(QgsLayoutItemMapGrid, "OutsideMapFrame")
+                )
+                grid.setAnnotationDirection(
+                    getattr(QgsLayoutItemMapGrid, "Horizontal")
+                )
         annotation_format = QgsTextFormat()
         annotation_format.setFont(QFont(font_family))
         annotation_format.setSize(6.5)

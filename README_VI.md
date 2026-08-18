@@ -30,10 +30,10 @@
 ## 🌟 Điểm Nổi Bật
 
 - **Bảo toàn dữ liệu gốc (Zero Data Distortion)**: Các lớp raster phân tích (Slope, Aspect, TRI, TWI...) lưu giữ nguyên vẹn giá trị vật lý thực tế (độ, radian, mét, chỉ số), phục vụ tính toán không gian chính xác.
-- **Trợ lý thiết lập thông minh (Smart Setup)**: Tự đề xuất khoảng cao đều theo tỷ lệ bản đồ và mức chênh cao (snap vào bảng chuẩn `1/2/2.5/5/10/20/25/50/100`), preview gradient màu trực tiếp trên combo, theme **Dark / Night** kèm swatch xem trước.
+- **Trợ lý thiết lập thông minh (Smart Setup)**: Tự đề xuất khoảng cao đều theo tỷ lệ bản đồ và mức chênh cao (snap vào bảng chuẩn `1/2/2.5/5/10/20/25/50/100`), **thư viện 20 bảng màu** với preview gradient trực tiếp trên combo, nhóm **Dark Terrain** (6 thang màu tối thực thụ với mốc độ cao tuyệt đối, tự chuyển sang theme Night Dark), theme **Dark / Night** kèm swatch xem trước.
 - **Mạng sông suối đa điểm liên tục (Continuous Polyline)**: Thuật toán dò tuyến thủy văn D8 nối liền các pixel thành các đường sông suối mượt mà với bảng thuộc tính phong phú (`ORDER`, `LENGTH_M`, `AREA_HA`) — hỗ trợ làm trơn Chaikin / đơn giản hóa Douglas–Peucker.
 - **Chỉ số đa hiểm họa & Gói GeoPackage**: Chỉ số tổng hợp có trọng số (sạt lở × độ dốc × TWI) và gộp **toàn bộ sản phẩm raster + vector vào một file `.gpkg` duy nhất** để chia sẻ (raster byte nén PNG không mất dữ liệu, raster float theo chuẩn OGC 2D-gridded-coverage).
-- **In 3D & Tự động hóa quy trình**: Xuất mesh STL/OBJ (tự giảm độ phân giải, phóng đại độ cao, đế đặc kín nước), preset theo ngành (Đô thị / Nông nghiệp / Thiên tai / Khai khoáng) một chạm, và nhật ký lịch sử 20 lần chạy gần nhất.
+- **In 3D & Tự động hóa quy trình**: Xuất mesh STL/OBJ (tự giảm độ phân giải, phóng đại độ cao, đế đặc kín nước), preset theo ngành (Đô thị / Nông nghiệp / Thiên tai / Khai khoáng) một chạm, nhật ký lịch sử 20 lần chạy gần nhất, và **xuất project QGIS (.qgz)** — lưu toàn bộ lớp, style, nhóm lớp và layout vào thư mục đầu ra.
 - **3D WebGIS Studio độc lập (`.html`)**: Trực quan hóa địa hình 3D mượt mà trên trình duyệt, tích hợp mô phỏng ngập lụt, cắt mặt cắt A $\rightarrow$ B trực tiếp, đổ bóng mặt trời theo giờ thực và trợ lý AI trả lời câu hỏi địa hình.
 - **Báo cáo Topographic Intelligence Report (`.html`)**: Dashboard tổng hợp với biểu đồ hoa hướng dốc (Aspect Rose), biểu đồ tần suất cao độ và ma trận đánh giá đất xây dựng theo TCVN.
 - **Tương thích kép QGIS 3 (Qt5) & QGIS 4 (Qt6)**: Đã xử lý toàn bộ scoped enums và tương thích hoàn toàn trên môi trường macOS, Windows, Linux.
@@ -61,11 +61,7 @@
 ### 2. Mạng Lưới Thủy Văn & Dòng Chảy Strahler
 
 - **Hướng dòng chảy D8 (Flow Direction) & Tích lũy dòng chảy (Flow Accumulation)**: Xác định hướng dồn nước của từng pixel và tính tổng diện tích lưu vực thượng nguồn ($ha, km^2$).
-- **Mạng sông suối phân cấp Strahler (Continuous Vector)**:
-  - *Cấp 1 (Suối nguồn - Headwater)*: Đường nét mảnh $0.28\text{ mm}$, xanh lam nhạt `#6baed6`.
-  - *Cấp 2 (Suối phụ - Tributary)*: Nét vừa $0.52\text{ mm}$, xanh lam trung `#3182bd`.
-  - *Cấp 3 (Nhánh sông - Sub-River)*: Nét đậm $0.85\text{ mm}$, xanh dương `#08519c`.
-  - *Cấp 4+ (Dòng chính - Major River)*: Nét lớn $1.30\text{ mm}$, xanh thẫm `#08306b`.
+- **Mạng sông suối phân cấp Strahler (Continuous Vector)**: phân cấp theo lưu lượng, màu **hydro-blue** rõ ràng trên theme sáng (`#74c0e6` → `#0b4489`) và màu **cyan** trên theme tối (`#9be1ff` → `#0f7fc9`) để sông luôn nổi bật trên nền địa hình.
 - **Ranh giới tiểu lưu vực (Watershed Basins)**: Phân vùng lưu vực tự động dạng polygon kèm bảng màu phân biệt.
 - **Chỉ số ẩm ướt địa hình (TWI - Topographic Wetness Index)**:
   $$\text{TWI} = \ln\left(\frac{A}{\tan \beta}\right)$$
@@ -93,11 +89,14 @@
 ### 4. Bản Đồ Địa Hình Chuẩn Xuất Bản (Cartography)
 
 - **Hệ thống đường đồng mức 3 cấp chuẩn USGS**:
-  - *Đường đồng mức phụ (Minor)*: $0.18\text{ mm}$, nét mảnh thể hiện chi tiết vi địa hình.
-  - *Đường đồng mức chính (Index)*: $0.42\text{ mm}$, nét đậm, kèm nhãn số độ cao dọc đường mức (mỗi 5 đường).
-  - *Đường đồng mức cái (Master)*: $0.65\text{ mm}$, phân ranh giới các khoảng cao đều lớn.
-- **Điểm độ cao đỉnh núi (Spot Elevation Peaks)**: Lọc tự động các đỉnh núi nổi bật theo độ nhô địa hình (prominence) và khoảng cách yên ngựa (col separation).
+  - *Đường đồng mức phụ (Minor)*: $0.15\text{ mm}$, nét mảnh thể hiện chi tiết vi địa hình.
+  - *Đường đồng mức chính (Index)*: $0.35\text{ mm}$, nét đậm, kèm nhãn số độ cao dọc đường mức (mỗi 5 đường).
+  - *Đường đồng mức cái (Master)*: $0.55\text{ mm}$, phân ranh giới các khoảng cao đều lớn.
+- **Thư viện 20 bảng màu**: phân tầng màu cao độ từ **Classic** (USGS Classic, Natural Earth, Swiss Topo), **Artistic** (Imhof, Vintage Atlas, Copper Relief), **Environment** (Alpine, Desert, Tropical, Arctic), **Scientific** (Viridis, Turbo, Grayscale, Spectral) và **Dark Terrain** (Midnight Terrain, Dark Forest, Dark Alpine, Dark Copper, Dark Volcano, Dark Oceanic) — thang màu tối dùng mốc độ cao tuyệt đối và kết hợp theme Night Dark (hillshade 45%, nền `#090B0D`, contour & sông màu cyan).
+- **Điểm độ cao đỉnh núi (Spot Elevation Peaks)**: Lọc tự động các đỉnh núi nổi bật theo độ nhô địa hình (prominence) và khoảng cách yên ngựa (col separation), kèm **ngưỡng % biên độ cao độ** (mặc định 80%) chỉ giữ lại những đỉnh đáng dán nhãn.
 - **Phân tầng màu cao độ (Color Relief) & Bóng đổ đa hướng (Multi-directional Hillshade)**: Kết hợp 4 hướng chiếu sáng ($225^\circ, 270^\circ, 315^\circ, 360^\circ$) giúp địa hình nổi khối 3D rõ nét, không bị khuất bóng.
+- **Logic bản đồ chuẩn USA**: nhãn lưới tọa độ nằm ngoài khung bản đồ và luôn ngang (không xoay theo mép khung); lớp raster không bao giờ mang nhãn (chỉ lớp vector đồng mức / điểm đỉnh được gán nhãn); tên lớp cartography theo quy ước đặt tên USGS.
+- **Xuất project QGIS**: một chạm lưu project hiện tại thành `.qgz` trong thư mục đầu ra kèm toàn bộ lớp, style, nhóm lớp và bản in — Layout Designer được tạo nhưng **không tự mở**, người dùng chủ động mở khi cần.
 - **Làm trơn bản đồ (Cartographic Smoothing)**: Chaikin (bo góc mềm) và Douglas–Peucker (đơn giản hóa) áp dụng cho cả đường đồng mức lẫn mạng sông — chọn ngay trên tab Products.
 
 ---
@@ -149,11 +148,11 @@ Xuất ra file HTML tổng hợp (`<prefix>_topographic_intelligence_report.html
 ## 🚀 Hướng Dẫn Cài Đặt
 
 ### Cách 1: Cài đặt qua file ZIP (Khuyến nghị)
-1. Tải file `terrain_product_studio-2.0.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Tải file `terrain_product_studio-2.1.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Trong QGIS, vào menu **Plugins (Tiện ích)** $\rightarrow$ **Manage and Install Plugins... (Quản lý và Cài đặt Tiện ích...)**.
 3. Chọn tab **Install from ZIP (Cài đặt từ ZIP)** $\rightarrow$ Chọn file `.zip` vừa tải $\rightarrow$ Nhấn **Install Plugin**.
 
-> **v2.0.0**: bản phát hành chuẩn xuất bản — trợ lý thiết lập thông minh (đề xuất khoảng cao đều, preview màu, theme Dark/Night), làm trơn Chaikin/Douglas–Peucker cho đồng mức & sông, sản phẩm geomorphon/SPI/STI, chỉ số đa hiểm họa có trọng số, gói GeoPackage duy nhất, xuất STL/OBJ in 3D, preset theo ngành và lịch sử chạy. (bản 1.2.0 trước đó đã sửa toàn bộ lỗi từ quét bảo mật QGIS Plugin Repository.)
+> **v2.1.0**: bản phát hành cartography & quy trình — thư viện 20 bảng màu với nhóm **Dark Terrain** thực thụ (thang màu tối theo mốc độ cao, tự chuyển theme Night Dark), ngưỡng % điểm đỉnh, **xuất project QGIS (.qgz)** một chạm, layout không còn tự mở, nền bản đồ mặc định gọn nhẹ, sông màu hydro-blue/cyan, đồng mức rõ hơn, nhãn lưới chuẩn USA (ngoài khung, chữ ngang). (bản 2.0.0 thêm trợ lý thiết lập thông minh, làm trơn Chaikin/Douglas–Peucker, geomorphon/SPI/STI, đa hiểm họa tổng hợp, gói GeoPackage, xuất STL/OBJ, preset ngành và lịch sử chạy.)
 
 ### Cách 2: Sao chép thủ công vào thư mục Plugins của QGIS
 Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng với hệ điều hành:
@@ -170,10 +169,10 @@ Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng
 3. **2 · Processing Extent**: Chọn phạm vi xử lý (*Toàn bộ DEM*, *Khung nhìn hiện tại*, hoặc *Theo lớp ranh giới*).
 4. **3 · Output**: Chọn thư mục lưu kết quả (mặc định lưu tại thư mục `temp/` nội bộ của plugin) và tiền tố đặt tên file (`prefix`).
 5. **Cấu hình các tab**:
-   - Tab **Products**: Chọn **preset theo ngành** (Đô thị / Nông nghiệp / Thiên tai / Khai khoáng) hoặc tự tick sản phẩm; cài làm trơn và trọng số chỉ số đa hiểm họa.
-   - Tab **Contours**: Tinh chỉnh khoảng cao đều và bội số đường đồng mức cái.
+   - Tab **Products**: Chọn **preset theo ngành** (Đô thị / Nông nghiệp / Thiên tai / Khai khoáng) hoặc tự tick sản phẩm; cài làm trơn và trọng số chỉ số đa hiểm họa; tick **Create QGIS project (.qgz)** để lưu project đã style vào thư mục đầu ra.
+   - Tab **Contours**: Tinh chỉnh khoảng cao đều, bội số đường đồng mức cái và **ngưỡng điểm đỉnh (% biên độ cao độ)** — chỉ giữ đỉnh thuộc top N% dải cao độ (0 = Tắt).
    - Tab **Hydrology**: Bật trích xuất thủy văn và ngưỡng diện tích tụ thủy sinh dòng ($ha$).
-   - Tab **Layout**: Cấu hình tự động tạo bản in trang in chuẩn xuất bản và xuất file PDF/PNG.
+   - Tab **Layout**: Cấu hình tự động tạo bản in trang in chuẩn xuất bản và xuất file PDF/PNG. Layout được tạo và lưu vào project nhưng **không còn tự mở** — mở từ trình quản lý Layouts khi cần.
    - Tab **Settings**: Phóng đại độ cao và độ dày đế cho **xuất STL/OBJ in 3D**.
    - Tab **Inspect**: Mở lại thư mục kết quả / báo cáo của bất kỳ lần chạy nào trong 20 lần gần nhất.
 6. Nhấn **Build Product Package** để bắt đầu xử lý.

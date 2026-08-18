@@ -145,13 +145,13 @@ def apply_contour_style(
     root = QgsRuleBasedRenderer.Rule(None)
     
     minor_symbol = QgsLineSymbol.createSimple(
-        {"color": preset["contour_minor"], "width": "0.12", "capstyle": "round", "joinstyle": "round"}
+        {"color": preset["contour_minor"], "width": "0.15", "capstyle": "round", "joinstyle": "round"}
     )
     index_symbol = QgsLineSymbol.createSimple(
-        {"color": preset["contour_index"], "width": "0.30", "capstyle": "round", "joinstyle": "round"}
+        {"color": preset["contour_index"], "width": "0.35", "capstyle": "round", "joinstyle": "round"}
     )
     master_symbol = QgsLineSymbol.createSimple(
-        {"color": master_color, "width": "0.48", "capstyle": "round", "joinstyle": "round"}
+        {"color": master_color, "width": "0.55", "capstyle": "round", "joinstyle": "round"}
     )
     
     root.appendChild(
@@ -300,7 +300,12 @@ def apply_ridge_style(layer, preset_key="usgs_classic"):
 
 
 def apply_stream_style(layer, preset_key="usgs_classic"):
-    """Apply tiered Strahler hydrography line style with graduated width and colors."""
+    """Apply tiered Strahler hydrography line style with graduated width and colors.
+
+    Light maps use a distinct hydro blue clearly separated from the terrain
+    ramps; Dark Terrain maps use a luminous cyan that stays readable on the
+    deep ink background.
+    """
     from qgis.core import (
         QgsRuleBasedRenderer,
         QgsLineSymbol,
@@ -313,28 +318,33 @@ def apply_stream_style(layer, preset_key="usgs_classic"):
     root_rule = QgsRuleBasedRenderer.Rule(symbol)
     root_rule.children().clear()
 
+    if preset.get("dark"):
+        stream_colors = ("#9be1ff", "#5fc9f7", "#2ba4e8", "#0f7fc9")
+    else:
+        stream_colors = ("#74c0e6", "#3f9fd6", "#1a6fb5", "#0b4489")
+
     # Rule 1: Order 1 (Headwater streams)
-    s1 = QgsLineSymbol.createSimple({"color": "#6baed6", "width": "0.28", "capstyle": "round", "joinstyle": "round"})
+    s1 = QgsLineSymbol.createSimple({"color": stream_colors[0], "width": "0.28", "capstyle": "round", "joinstyle": "round"})
     r1 = QgsRuleBasedRenderer.Rule(s1, 0, 0, '"ORDER" <= 1', "Order 1 - Headwater Stream")
     root_rule.appendChild(r1)
 
     # Rule 2: Order 2 (Secondary Tributaries)
-    s2 = QgsLineSymbol.createSimple({"color": "#3182bd", "width": "0.52", "capstyle": "round", "joinstyle": "round"})
+    s2 = QgsLineSymbol.createSimple({"color": stream_colors[1], "width": "0.52", "capstyle": "round", "joinstyle": "round"})
     r2 = QgsRuleBasedRenderer.Rule(s2, 0, 0, '"ORDER" = 2', "Order 2 - Secondary Tributary")
     root_rule.appendChild(r2)
 
     # Rule 3: Order 3 (Sub-Rivers)
-    s3 = QgsLineSymbol.createSimple({"color": "#08519c", "width": "0.85", "capstyle": "round", "joinstyle": "round"})
+    s3 = QgsLineSymbol.createSimple({"color": stream_colors[2], "width": "0.85", "capstyle": "round", "joinstyle": "round"})
     r3 = QgsRuleBasedRenderer.Rule(s3, 0, 0, '"ORDER" = 3', "Order 3 - Sub-River Channel")
     root_rule.appendChild(r3)
 
     # Rule 4: Order 4+ (Main Channels)
-    s4 = QgsLineSymbol.createSimple({"color": "#08306b", "width": "1.30", "capstyle": "round", "joinstyle": "round"})
+    s4 = QgsLineSymbol.createSimple({"color": stream_colors[3], "width": "1.30", "capstyle": "round", "joinstyle": "round"})
     r4 = QgsRuleBasedRenderer.Rule(s4, 0, 0, '"ORDER" >= 4', "Order 4+ - Major River Channel")
     root_rule.appendChild(r4)
 
     # Fallback rule
-    s_fallback = QgsLineSymbol.createSimple({"color": "#3182bd", "width": "0.45"})
+    s_fallback = QgsLineSymbol.createSimple({"color": stream_colors[1], "width": "0.45"})
     r_fallback = QgsRuleBasedRenderer.Rule(s_fallback, 0, 0, "ELSE", "Other Stream Channels")
     root_rule.appendChild(r_fallback)
 

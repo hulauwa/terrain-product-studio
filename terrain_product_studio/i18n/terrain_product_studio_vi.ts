@@ -295,5 +295,29 @@
         <source>Mining / Infrastructure</source>
         <translation>Khai khoáng / cơ sở hạ tầng</translation>
     </message>
+    <message>
+        <source>Create QGIS project (.qgz) in output folder</source>
+        <translation>Tạo project QGIS (.qgz) trong thư mục đầu ra</translation>
+    </message>
+    <message>
+        <source>Peak point threshold (% of relief)</source>
+        <translation>Ngưỡng điểm đỉnh (% biên độ cao độ)</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>Tắt</translation>
+    </message>
+    <message>
+        <source>QGIS project</source>
+        <translation>Project QGIS</translation>
+    </message>
+    <message>
+        <source>QGIS project save failed</source>
+        <translation>Lưu project QGIS thất bại</translation>
+    </message>
+    <message>
+        <source>QGIS project save error</source>
+        <translation>Lỗi lưu project QGIS</translation>
+    </message>
 </context>
 </TS>

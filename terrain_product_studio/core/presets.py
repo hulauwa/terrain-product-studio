@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+from .math_utils import interpolate_color_stops
 
+# Each palette entry carries:
+#   label    – display name in the dock combo and Processing enum
+#   group    – "classic" / "artistic" / "environment" / "scientific" / "dark"
+#   stops    – relative (0..1) color stops for a stretched color table
+#   elev_stops – absolute elevation-anchored color stops (used verbatim)
+#   dark     – True for the Dark Terrain family (drives dark map styling)
 TERRAIN_PALETTES = {
+    # ── Classic (light) ────────────────────────────────────────────────────
     "usgs_topo": {
-        "label": "USGS classic topo",
+        "label": "USGS Classic",
+        "group": "classic",
         "stops": (
             (0.00, 171, 196, 157),
             (0.16, 193, 207, 164),
@@ -16,19 +25,9 @@ TERRAIN_PALETTES = {
             (1.00, 244, 241, 232),
         ),
     },
-    "antique_survey": {
-        "label": "Antique American survey",
-        "stops": (
-            (0.00, 151, 170, 139),
-            (0.18, 181, 188, 145),
-            (0.39, 216, 201, 155),
-            (0.61, 199, 166, 124),
-            (0.80, 158, 128, 105),
-            (1.00, 226, 218, 201),
-        ),
-    },
     "natural": {
-        "label": "Natural terrain",
+        "label": "Natural Earth",
+        "group": "classic",
         "stops": (
             (0.00, 62, 111, 85),
             (0.12, 103, 143, 98),
@@ -40,19 +39,36 @@ TERRAIN_PALETTES = {
             (1.00, 239, 239, 235),
         ),
     },
-    "muted": {
-        "label": "Muted basemap",
+    "swiss_topo": {
+        "label": "Swiss Topo",
+        "group": "classic",
         "stops": (
-            (0.00, 151, 177, 163),
-            (0.18, 178, 194, 169),
-            (0.38, 218, 211, 172),
-            (0.58, 211, 187, 153),
-            (0.78, 184, 166, 153),
-            (1.00, 231, 230, 226),
+            (0.00, 150, 176, 142),
+            (0.18, 193, 204, 158),
+            (0.40, 228, 218, 168),
+            (0.60, 206, 176, 128),
+            (0.78, 156, 120, 96),
+            (0.92, 188, 184, 172),
+            (1.00, 242, 240, 234),
+        ),
+    },
+    # ── Artistic ──────────────────────────────────────────────────────────
+    "imhof": {
+        "label": "Imhof Relief",
+        "group": "artistic",
+        "stops": (
+            (0.00, 32, 86, 58),
+            (0.15, 88, 132, 82),
+            (0.32, 160, 168, 108),
+            (0.50, 205, 188, 128),
+            (0.68, 172, 132, 88),
+            (0.85, 214, 208, 192),
+            (1.00, 248, 247, 242),
         ),
     },
     "atlas": {
-        "label": "Classic atlas",
+        "label": "Vintage Atlas",
+        "group": "artistic",
         "stops": (
             (0.00, 92, 137, 117),
             (0.20, 143, 166, 125),
@@ -62,8 +78,97 @@ TERRAIN_PALETTES = {
             (1.00, 236, 232, 222),
         ),
     },
+    "copper_relief": {
+        "label": "Copper Relief",
+        "group": "artistic",
+        "stops": (
+            (0.00, 52, 30, 22),
+            (0.20, 102, 58, 34),
+            (0.45, 166, 102, 55),
+            (0.70, 211, 160, 102),
+            (0.88, 236, 210, 172),
+            (1.00, 250, 244, 230),
+        ),
+    },
+    # ── Environment ───────────────────────────────────────────────────────
+    "alpine": {
+        "label": "Alpine",
+        "group": "environment",
+        "stops": (
+            (0.00, 48, 92, 62),
+            (0.18, 118, 142, 92),
+            (0.40, 178, 162, 112),
+            (0.62, 196, 186, 162),
+            (0.82, 224, 226, 222),
+            (1.00, 252, 253, 253),
+        ),
+    },
+    "desert": {
+        "label": "Desert",
+        "group": "environment",
+        "stops": (
+            (0.00, 138, 94, 48),
+            (0.25, 178, 128, 70),
+            (0.50, 212, 166, 102),
+            (0.75, 236, 206, 148),
+            (1.00, 250, 242, 218),
+        ),
+    },
+    "tropical": {
+        "label": "Tropical",
+        "group": "environment",
+        "stops": (
+            (0.00, 18, 78, 48),
+            (0.20, 56, 122, 74),
+            (0.45, 112, 158, 84),
+            (0.70, 178, 192, 108),
+            (0.88, 228, 222, 162),
+            (1.00, 246, 242, 214),
+        ),
+    },
+    "arctic": {
+        "label": "Arctic",
+        "group": "environment",
+        "stops": (
+            (0.00, 118, 148, 172),
+            (0.25, 168, 188, 202),
+            (0.50, 204, 218, 226),
+            (0.75, 232, 242, 248),
+            (1.00, 252, 253, 255),
+        ),
+    },
+    # ── Scientific ────────────────────────────────────────────────────────
+    "viridis": {
+        "label": "Viridis",
+        "group": "scientific",
+        "stops": (
+            (0.00, 68, 1, 84),
+            (0.15, 72, 41, 134),
+            (0.30, 58, 85, 166),
+            (0.45, 34, 128, 178),
+            (0.60, 32, 166, 165),
+            (0.75, 96, 202, 122),
+            (0.90, 192, 224, 66),
+            (1.00, 253, 231, 37),
+        ),
+    },
+    "turbo": {
+        "label": "Turbo",
+        "group": "scientific",
+        "stops": (
+            (0.00, 48, 18, 59),
+            (0.15, 49, 98, 210),
+            (0.30, 34, 181, 230),
+            (0.45, 39, 221, 164),
+            (0.60, 111, 235, 86),
+            (0.75, 208, 218, 35),
+            (0.90, 250, 150, 33),
+            (1.00, 250, 70, 20),
+        ),
+    },
     "grayscale": {
         "label": "Grayscale",
+        "group": "scientific",
         "stops": (
             (0.00, 244, 244, 242),
             (0.35, 218, 218, 214),
@@ -71,18 +176,145 @@ TERRAIN_PALETTES = {
             (1.00, 238, 238, 236),
         ),
     },
-    "terrain_dark": {
-        "label": "Dark night terrain",
+    "spectral": {
+        "label": "Spectral",
+        "group": "scientific",
         "stops": (
-            (0.00, 26, 52, 70),
-            (0.18, 38, 68, 78),
-            (0.38, 60, 84, 80),
-            (0.58, 88, 94, 80),
-            (0.78, 116, 98, 82),
-            (1.00, 152, 142, 132),
+            (0.00, 213, 62, 79),
+            (0.15, 244, 109, 67),
+            (0.30, 253, 174, 97),
+            (0.45, 254, 224, 139),
+            (0.60, 255, 255, 191),
+            (0.75, 230, 245, 152),
+            (0.88, 171, 221, 164),
+            (1.00, 50, 136, 189),
+        ),
+    },
+    # ── Dark Terrain (dark background + high-contrast ramps) ─────────────
+    "terrain_dark": {
+        "label": "Midnight Terrain",
+        "group": "dark",
+        "dark": True,
+        "elev_stops": (
+            (0.0, 8, 19, 24),
+            (250.0, 18, 51, 46),
+            (500.0, 37, 76, 59),
+            (1000.0, 66, 99, 74),
+            (2000.0, 146, 122, 80),
+            (3500.0, 182, 166, 130),
+            (5000.0, 216, 205, 187),
+        ),
+    },
+    "dark_forest": {
+        "label": "Dark Forest",
+        "group": "dark",
+        "dark": True,
+        "elev_stops": (
+            (0.0, 7, 19, 15),
+            (250.0, 21, 56, 43),
+            (500.0, 53, 98, 71),
+            (1000.0, 126, 136, 90),
+            (2000.0, 200, 198, 167),
+        ),
+    },
+    "dark_alpine": {
+        "label": "Dark Alpine",
+        "group": "dark",
+        "dark": True,
+        "elev_stops": (
+            (0.0, 8, 20, 29),
+            (250.0, 22, 55, 70),
+            (500.0, 72, 99, 107),
+            (1000.0, 144, 147, 148),
+            (2000.0, 224, 227, 227),
+        ),
+    },
+    "dark_copper": {
+        "label": "Dark Copper",
+        "group": "dark",
+        "dark": True,
+        "elev_stops": (
+            (0.0, 19, 15, 12),
+            (250.0, 56, 37, 26),
+            (500.0, 116, 69, 46),
+            (1000.0, 182, 117, 78),
+            (2000.0, 229, 199, 168),
+        ),
+    },
+    "dark_volcano": {
+        "label": "Dark Volcano",
+        "group": "dark",
+        "dark": True,
+        "elev_stops": (
+            (0.0, 11, 11, 13),
+            (250.0, 41, 38, 42),
+            (500.0, 89, 66, 60),
+            (1000.0, 164, 90, 63),
+            (2000.0, 229, 183, 125),
+        ),
+    },
+    "dark_oceanic": {
+        "label": "Dark Oceanic",
+        "group": "dark",
+        "dark": True,
+        "elev_stops": (
+            (0.0, 7, 21, 27),
+            (250.0, 17, 56, 64),
+            (500.0, 39, 97, 106),
+            (1000.0, 109, 140, 122),
+            (2000.0, 188, 194, 165),
         ),
     },
 }
+
+# Internal palette referenced by the Modern Atlas cartography theme but not
+# offered in the dock combo (kept out of PALETTE_ORDER below).
+TERRAIN_PALETTES["muted"] = {
+    "label": "Muted basemap",
+    "group": None,
+    "stops": (
+        (0.00, 151, 177, 163),
+        (0.18, 178, 194, 169),
+        (0.38, 218, 211, 172),
+        (0.58, 211, 187, 153),
+        (0.78, 184, 166, 153),
+        (1.00, 231, 230, 226),
+    ),
+}
+
+# Dock / Processing combo order: grouped with separators, exactly 20 entries.
+# The Processing enum MUST use the same order — the dock passes the combo
+# index straight through as the PALETTE parameter.
+PALETTE_GROUPS = (
+    ("classic", "Classic", ("usgs_topo", "natural", "swiss_topo")),
+    ("artistic", "Artistic", ("imhof", "atlas", "copper_relief")),
+    ("environment", "Environment", ("alpine", "desert", "tropical", "arctic")),
+    ("scientific", "Scientific", ("viridis", "turbo", "grayscale", "spectral")),
+    ("dark", "Dark Terrain", ("terrain_dark", "dark_forest", "dark_alpine", "dark_copper", "dark_volcano", "dark_oceanic")),
+)
+PALETTE_ORDER = tuple(key for _, _, keys in PALETTE_GROUPS for key in keys)
+
+DEFAULT_PALETTE = "natural"
+DEFAULT_CARTOGRAPHY = "natural_earth"
+
+
+def resolve_palette_stops(palette, minimum, maximum):
+    """Return ``(value, r, g, b)`` gdaldem color-table stops for a palette.
+
+    Palettes with absolute elevation-anchored stops (``elev_stops``) are used
+    verbatim; relative ``stops`` are stretched across the display range.
+    """
+    if "elev_stops" in palette:
+        return [
+            (float(value), int(red), int(green), int(blue))
+            for value, red, green, blue in palette["elev_stops"]
+        ]
+    return interpolate_color_stops(minimum, maximum, palette["stops"])
+
+
+def is_dark_palette(palette):
+    """True when the palette belongs to the Dark Terrain family."""
+    return bool(palette.get("dark"))
 
 
 # These presets drive both map-layer symbology and print-layout decoration.  The
@@ -151,6 +383,27 @@ CARTOGRAPHY_PRESETS = {
         "orientation": "portrait",
         "legend_title": "LEGEND",
     },
+    "natural_earth": {
+        "label": "Natural Earth Light",
+        "description": "Default light cartography: natural green-brown terrain, clean blue hydrography and balanced contrast.",
+        "palette": "natural",
+        "font": "Noto Sans",
+        "paper": "#f6f4ec",
+        "ink": "#2a2f26",
+        "muted_ink": "#6b7263",
+        "contour_minor": "112,94,60,150",
+        "contour_index": "78,62,38,235",
+        "contour_master": "48,38,22,255",
+        "contour_label": "#4f3d22",
+        "water": "#1f6fb5",
+        "water_light": "#b8d9ea",
+        "accent": "#b5532f",
+        "ridge": "96,76,50,200",
+        "spot_elevation": "#4f3d22",
+        "grid": "#7a7d6f",
+        "orientation": "landscape",
+        "legend_title": "MAP SYMBOLS",
+    },
     "field_grayscale": {
         "label": "Grayscale Field Map",
         "description": "High contrast monochrome cartography designed for field use and crisp black-and-white printing.",
@@ -174,20 +427,21 @@ CARTOGRAPHY_PRESETS = {
     },
     "night_dark": {
         "label": "Dark / Night Map",
-        "description": "Night-time cartography: deep ink paper, warm contour lines and luminous water — built for dark screens and presentations.",
+        "description": "Night-time cartography: deep ink paper, light gray-cyan contour lines and luminous water — built for dark screens and presentations.",
         "palette": "terrain_dark",
         "font": "Noto Sans",
         "paper": "#0e1116",
         "ink": "#e6e1d8",
         "muted_ink": "#8a8a8a",
-        "contour_minor": "170,150,80,150",
-        "contour_index": "205,180,95,235",
-        "contour_master": "238,216,124,255",
-        "contour_label": "#e8d48a",
-        "water": "#4fc3f7",
+        "dark": True,
+        "contour_minor": "170,186,200,150",
+        "contour_index": "200,216,228,230",
+        "contour_master": "226,238,244,255",
+        "contour_label": "#d3e2ec",
+        "water": "#5fc9f7",
         "water_light": "#1b3a4d",
         "accent": "#ff9d6b",
-        "ridge": "150,118,64,200",
+        "ridge": "150,176,192,200",
         "spot_elevation": "#ffb74d",
         "grid": "#4c5561",
         "orientation": "landscape",

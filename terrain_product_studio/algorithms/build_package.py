@@ -34,8 +34,13 @@ from qgis.core import (
 
 from ..core.dem_info import inspect_dem_layer
 from ..core.intelligence_report import generate_intelligence_report
-from ..core.math_utils import interpolate_color_stops, sanitize_prefix, unique_path
-from ..core.presets import TERRAIN_PALETTES
+from ..core.math_utils import sanitize_prefix, unique_path
+from ..core.presets import (
+    DEFAULT_PALETTE,
+    PALETTE_ORDER,
+    TERRAIN_PALETTES,
+    resolve_palette_stops,
+)
 from ..core import plugin_version
 from ..core.qgis_compat import all_raster_statistics_flag
 from ..core.smoothing import smooth_geometries
@@ -106,6 +111,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     CREATE_INTELLIGENCE_REPORT = "CREATE_INTELLIGENCE_REPORT"
     CONTOUR_INTERVAL = "CONTOUR_INTERVAL"
     INDEX_MULTIPLIER = "INDEX_MULTIPLIER"
+    SPOT_PCT = "SPOT_PCT"
     SMOOTHING = "SMOOTHING"
     SIMPLIFY_TOLERANCE = "SIMPLIFY_TOLERANCE"
     ACCUMULATION = "ACCUMULATION"
@@ -141,7 +147,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     INTELLIGENCE_REPORT = "INTELLIGENCE_REPORT"
     REPORT = "REPORT"
 
-    _PALETTE_KEYS = tuple(TERRAIN_PALETTES.keys())
+    _PALETTE_KEYS = PALETTE_ORDER
     _COMPRESSION_VALUES = ("DEFLATE", "ZSTD", "LZW", "NONE")
 
     @staticmethod
@@ -214,7 +220,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 self.PALETTE,
                 self.tr("Elevation color palette"),
                 options=[TERRAIN_PALETTES[key]["label"] for key in self._PALETTE_KEYS],
-                defaultValue=0,
+                defaultValue=PALETTE_ORDER.index(DEFAULT_PALETTE),
             )
         )
         self.addParameter(
@@ -265,27 +271,30 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             )
         )
 
+        # Default setup ticks only the basemap products (color relief,
+        # multidirectional hillshade, contours, spot peaks); everything else
+        # is opt-in.
         products = (
             (self.CREATE_COLOR_RELIEF, self.tr("Elevation color relief"), True),
             (self.CREATE_HILLSHADE, self.tr("Standard hillshade"), False),
             (self.CREATE_MULTI_HILLSHADE, self.tr("Multidirectional hillshade"), True),
-            (self.CREATE_SLOPE, self.tr("Slope in degrees"), True),
-            (self.CREATE_ASPECT, self.tr("Aspect"), True),
-            (self.CREATE_TRI, self.tr("Terrain Ruggedness Index"), True),
-            (self.CREATE_TPI, self.tr("Topographic Position Index"), True),
-            (self.CREATE_ROUGHNESS, self.tr("Roughness"), True),
+            (self.CREATE_SLOPE, self.tr("Slope in degrees"), False),
+            (self.CREATE_ASPECT, self.tr("Aspect"), False),
+            (self.CREATE_TRI, self.tr("Terrain Ruggedness Index"), False),
+            (self.CREATE_TPI, self.tr("Topographic Position Index"), False),
+            (self.CREATE_ROUGHNESS, self.tr("Roughness"), False),
             (self.CREATE_PROFILE_CURVATURE, self.tr("Profile curvature"), False),
             (self.CREATE_PLANFORM_CURVATURE, self.tr("Planform curvature"), False),
             (self.CREATE_CONTOURS, self.tr("Contours"), True),
             (self.CREATE_SPOT_ELEVATIONS, self.tr("Spot elevation peaks"), True),
-            (self.CREATE_SUITABILITY, self.tr("Slope construction suitability"), True),
-            (self.CREATE_LANDSLIDE, self.tr("Landslide hazard & RUSLE LS factor"), True),
-            (self.CREATE_GEOMORPHON, self.tr("Geomorphon terrain forms (10 classes)"), True),
-            (self.CREATE_SPI, self.tr("Stream Power Index (SPI)"), True),
-            (self.CREATE_STI, self.tr("Sediment Transport Index (STI)"), True),
-            (self.CREATE_MULTIHAZARD, self.tr("Multi-hazard composite index (landslide + TWI + slope)"), True),
-            (self.CREATE_3D_VIEWER, self.tr("Interactive 3D Web Terrain Viewer (HTML)"), True),
-            (self.CREATE_INTELLIGENCE_REPORT, self.tr("Topographic Intelligence Report (HTML)"), True),
+            (self.CREATE_SUITABILITY, self.tr("Slope construction suitability"), False),
+            (self.CREATE_LANDSLIDE, self.tr("Landslide hazard & RUSLE LS factor"), False),
+            (self.CREATE_GEOMORPHON, self.tr("Geomorphon terrain forms (10 classes)"), False),
+            (self.CREATE_SPI, self.tr("Stream Power Index (SPI)"), False),
+            (self.CREATE_STI, self.tr("Sediment Transport Index (STI)"), False),
+            (self.CREATE_MULTIHAZARD, self.tr("Multi-hazard composite index (landslide + TWI + slope)"), False),
+            (self.CREATE_3D_VIEWER, self.tr("Interactive 3D Web Terrain Viewer (HTML)"), False),
+            (self.CREATE_INTELLIGENCE_REPORT, self.tr("Topographic Intelligence Report (HTML)"), False),
         )
         for name, label, default in products:
             self.addParameter(QgsProcessingParameterBoolean(name, label, defaultValue=default))
@@ -377,6 +386,18 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             )
         )
         self.addParameter(
+            QgsProcessingParameterNumber(
+                self.SPOT_PCT,
+                self.tr(
+                    "Spot peak elevation threshold (% of relief; 0 = all local peaks)"
+                ),
+                type=_number_type_integer(),
+                minValue=0,
+                maxValue=100,
+                defaultValue=80,
+            )
+        )
+        self.addParameter(
             QgsProcessingParameterEnum(
                 self.SMOOTHING,
                 self.tr("Contour smoothness (cartographic copy)"),
@@ -462,7 +483,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
 
     @staticmethod
     def _write_color_table(path, minimum, maximum, palette):
-        stops = interpolate_color_stops(minimum, maximum, palette)
+        stops = resolve_palette_stops(palette, minimum, maximum)
         with open(path, "w", encoding="utf-8") as stream:
             stream.write("nv 255 255 255 0\n")
             for value, red, green, blue in stops:
@@ -500,6 +521,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         zevenbergen = self.parameterAsBool(parameters, self.ZEVENBERGEN, context)
         contour_interval = self.parameterAsDouble(parameters, self.CONTOUR_INTERVAL, context)
         index_multiplier = self.parameterAsInt(parameters, self.INDEX_MULTIPLIER, context)
+        spot_pct = self.parameterAsInt(parameters, self.SPOT_PCT, context)
         geomorphon_radius_m = self.parameterAsDouble(parameters, self.GEOMORPHON_RADIUS_M, context)
         geomorphon_tolerance = self.parameterAsDouble(parameters, self.GEOMORPHON_TOLERANCE, context)
         accumulation_input = None
@@ -740,7 +762,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 color_table,
                 display_minimum,
                 display_maximum,
-                TERRAIN_PALETTES[palette_key]["stops"],
+                TERRAIN_PALETTES[palette_key],
             )
             run_product(
                 self.COLOR_RELIEF,
@@ -862,7 +884,12 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 multi.pushInfo(self.tr("Extracting spot elevation peaks…"))
                 try:
                     dem_path = working_dem if isinstance(working_dem, str) else source.source().split("|")[0]
-                    count = extract_spot_elevations(dem_path, band, spot_path)
+                    count = extract_spot_elevations(
+                        dem_path,
+                        band,
+                        spot_path,
+                        threshold_pct=float(spot_pct),
+                    )
                     if count > 0:
                         outputs[self.SPOT_ELEVATIONS] = spot_path
                 except Exception as err:
