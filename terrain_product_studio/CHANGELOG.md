@@ -6,6 +6,8 @@
 - **Compact Products tab**: product checkboxes arranged in a 2-column grid with word-wrapping labels — halves the tab height and keeps the whole dock short.
 - **Faster dock startup (~40% quicker)**: system font scanning is deferred until the Layout tab is first opened instead of enumerating 180+ fonts at dock construction (~390 ms → ~210 ms).
 - **Test coverage**: added `tests/qgis_ui_render_check.py` (offscreen render check that the Run button is scroll-reachable at any dock size); updated stale UI-probe and smoke-test expectations (15 products, `terrainstudio:buildhydrology`).
+- **QGIS Plugin Repository security scan: PASS**: fixed all blockers from the automated review — replaced 13 silent `try-except-pass` blocks with explicit error reporting or safe defaults (Bandit B110), removed the SQL-injection heuristic false positive by moving the HTML template to a module constant (B608), added the missing `from osgeo import gdal` import in the package builder (Flake8 F821 — a real bug where the fallback path silently hid a NameError), and made 18 Qt6 scoped-enum usages static-analysis-safe with `getattr()` fallbacks that still run on PyQt5.
+- **Requirement change**: `qgisMinimumVersion` raised from 3.0 to 3.34 — the plugin now requires a QGIS version that ships Qt 5.15 (the scoped-enum fallbacks target QGIS 4 / Qt 6 and modern 3.x).
 
 ## 1.0.0 — 2026-08-17
 
