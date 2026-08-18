@@ -179,7 +179,8 @@ def _calculate_hydrologic_index(accumulation_path, slope_path, output_path, kind
     """Shared SPI / STI computation from a flow accumulation and slope raster.
 
     Specific catchment area As = accumulation × cell size (m). ``kind`` is
-    either ``"spi"`` (Stream Power Index = ln(As · tan(slope))) or ``"sti"``
+    ``"spi"`` (Stream Power Index = ln(As · tan(slope))), ``"twi"``
+    (Topographic Wetness Index = ln(As / tan(slope))) or ``"sti"``
     (Sediment Transport Index = (As/22.13)^0.6 · (sin(slope)/0.0896)^1.3).
     """
 
@@ -219,6 +220,11 @@ def _calculate_hydrologic_index(accumulation_path, slope_path, output_path, kind
         index[valid] = np.log(
             np.maximum(As[valid] * np.maximum(np.tan(slope_rad[valid]), 1e-9), 1e-9)
         )
+    elif kind == "twi":  # ln(As / tan(slope)), the hydrology algorithm's form
+        index[valid] = np.log(
+            np.maximum(As[valid], 1e-9)
+            / np.maximum(np.tan(slope_rad[valid]), 1e-9)
+        )
     else:  # sti — Moore & Wilson (1992) / Desmet & Govers (1996) form
         index[valid] = ((As[valid] / 22.13) ** 0.6) * (
             (np.maximum(sin_slope[valid], 0.001) / 0.0896) ** 1.3
@@ -246,3 +252,99 @@ def calculate_spi(accumulation_path: str, slope_path: str, output_path: str) -> 
 def calculate_sti(accumulation_path: str, slope_path: str, output_path: str) -> dict:
     """Sediment Transport Index — STI = (As/22.13)^0.6 × (sin(slope)/0.0896)^1.3."""
     return _calculate_hydrologic_index(accumulation_path, slope_path, output_path, "sti")
+
+
+def calculate_twi(accumulation_path: str, slope_path: str, output_path: str) -> dict:
+    """Topographic Wetness Index — TWI = ln(As / tan(slope)).
+
+    Standalone twin of the hydrology algorithm's internal TWI so products
+    like the multi-hazard composite can compute it on the fly when the
+    user has not run the Hydrology phase yet.
+    """
+    return _calculate_hydrologic_index(accumulation_path, slope_path, output_path, "twi")
+
+
+def _normalize_band(array, valid, percentile=(1.0, 99.0)):
+    """Robust 0–1 stretch: clip to the percentile range, then min–max."""
+    values = array[valid]
+    low, high = np.percentile(values, percentile)
+    if high - low < 1e-9:
+        return np.zeros_like(array, dtype=np.float32)
+    norm = (array - low) / (high - low)
+    return np.clip(norm, 0.0, 1.0).astype(np.float32)
+
+
+def calculate_multihazard(
+    landslide_path: str,
+    twi_path: str,
+    slope_path: str,
+    output_path: str,
+    weights: tuple = (0.5, 0.3, 0.2),
+) -> dict:
+    """Weighted multi-hazard composite index raster (1 Low, 2 Moderate, 3 High).
+
+    ``score = w_landslide × landslide_norm + w_twi × twi_norm + w_slope × slope_norm``
+    with landslide classes 1–4 scaled to 0–1 and TWI/slope stretched to
+    their 1st–99th percentile range. Thresholds: <0.33 Low, 0.33–0.66
+    Moderate, >0.66 High.
+    """
+
+    sources = (
+        ("landslide hazard", landslide_path),
+        ("TWI", twi_path),
+        ("slope", slope_path),
+    )
+    arrays = []
+    valid_mask = None
+    reference = None
+    for label, path in sources:
+        ds = gdal.Open(path, gdal.GA_ReadOnly)
+        if ds is None:
+            raise RuntimeError(f"Could not open {label} raster for multi-hazard: {path}")
+        band = ds.GetRasterBand(1)
+        array = band.ReadAsArray().astype(np.float32, copy=False)
+        nodata = band.GetNoDataValue()
+        valid = np.isfinite(array)
+        if nodata is not None and math.isfinite(float(nodata)):
+            valid &= array != float(nodata)
+        if valid_mask is None:
+            valid_mask = valid
+            reference = ds
+        elif array.shape != valid_mask.shape:
+            reference = None
+            ds = None
+            raise RuntimeError(
+                "Multi-hazard requires landslide, TWI and slope rasters "
+                "with identical grids."
+            )
+        else:
+            valid_mask &= valid
+        arrays.append(array)
+        ds = None
+
+    w_landslide, w_twi, w_slope = weights
+    total_weight = w_landslide + w_twi + w_slope
+    if total_weight <= 0.0:
+        raise RuntimeError("Multi-hazard weights must sum to more than zero.")
+
+    landslide_norm = np.clip((arrays[0] - 1.0) / 3.0, 0.0, 1.0)
+    twi_norm = _normalize_band(arrays[1], valid_mask)
+    slope_norm = _normalize_band(arrays[2], valid_mask)
+    score = (
+        (w_landslide * landslide_norm + w_twi * twi_norm + w_slope * slope_norm)
+        / total_weight
+    )
+
+    classes = np.zeros_like(arrays[0], dtype=np.uint8)
+    classes[valid_mask] = np.where(
+        score[valid_mask] > 0.66, 3, np.where(score[valid_mask] >= 0.33, 2, 1)
+    )
+    _write_raster(reference, output_path, classes, gdal.GDT_Byte, 0)
+    reference = None
+
+    total = max(1, int(np.count_nonzero(valid_mask)))
+    return {
+        "low_pct": round(float(np.count_nonzero(classes == 1)) / total * 100.0, 2),
+        "moderate_pct": round(float(np.count_nonzero(classes == 2)) / total * 100.0, 2),
+        "high_pct": round(float(np.count_nonzero(classes == 3)) / total * 100.0, 2),
+    }

@@ -460,3 +460,15 @@ def apply_sti_style(layer):
     )
 
 
+def apply_multihazard_style(layer):
+    """Apply the 3-class multi-hazard palette: green / amber / red."""
+    _pseudocolor(
+        layer,
+        (
+            (1.0, "#2e8b57", "Low"),
+            (2.0, "#f0a30a", "Moderate"),
+            (3.0, "#d7191c", "High"),
+        ),
+    )
+
+

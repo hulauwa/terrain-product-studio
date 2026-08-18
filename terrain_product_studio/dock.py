@@ -251,6 +251,7 @@ class TerrainStudioDock(QDockWidget):
             ("CREATE_GEOMORPHON", self.tr("Geomorphon terrain forms (10 classes)"), True),
             ("CREATE_SPI", self.tr("Stream Power Index (SPI)"), True),
             ("CREATE_STI", self.tr("Sediment Transport Index (STI)"), True),
+            ("CREATE_MULTIHAZARD", self.tr("Multi-hazard composite (landslide + TWI + slope)"), True),
             ("CREATE_3D_VIEWER", self.tr("Interactive 3D Web Terrain Viewer (HTML)"), True),
             ("CREATE_INTELLIGENCE_REPORT", self.tr("Topographic Intelligence Report (HTML)"), True),
             ("CREATE_PROFILE_CURVATURE", self.tr("Profile curvature (flow acceleration)"), False),
@@ -276,9 +277,10 @@ class TerrainStudioDock(QDockWidget):
         layout.setColumnStretch(1, 1)
         note = QLabel(
             self.tr(
-                "💡 SPI/STI and landslide hazard are most accurate after running "
-                "Hydrology — the dock passes its real flow accumulation to the "
-                "package. Without it, slope is used as a stand-in."
+                "💡 Run Hydrology first for accurate SPI/STI, landslide hazard and "
+                "multi-hazard results — the dock passes its real flow accumulation "
+                "to the package. Without it, slope is used as a stand-in and "
+                "multi-hazard is skipped."
             )
         )
         note.setWordWrap(True)
@@ -483,6 +485,26 @@ class TerrainStudioDock(QDockWidget):
         self.altitude.setSuffix("°")
         self.zevenbergen_check = QCheckBox(self.tr("Zevenbergen–Thorne (smoother slopes)"))
         self.zevenbergen_check.setChecked(False)
+
+        self.bundle_check = QCheckBox(self.tr("Export all products to a single GeoPackage bundle"))
+        self.bundle_check.setChecked(True)
+
+        self.multi_hazard_weight_landslide = QDoubleSpinBox()
+        self.multi_hazard_weight_landslide.setRange(0.0, 1.0)
+        self.multi_hazard_weight_landslide.setDecimals(2)
+        self.multi_hazard_weight_landslide.setSingleStep(0.05)
+        self.multi_hazard_weight_landslide.setValue(0.5)
+        self.multi_hazard_weight_twi = QDoubleSpinBox()
+        self.multi_hazard_weight_twi.setRange(0.0, 1.0)
+        self.multi_hazard_weight_twi.setDecimals(2)
+        self.multi_hazard_weight_twi.setSingleStep(0.05)
+        self.multi_hazard_weight_twi.setValue(0.3)
+        self.multi_hazard_weight_slope = QDoubleSpinBox()
+        self.multi_hazard_weight_slope.setRange(0.0, 1.0)
+        self.multi_hazard_weight_slope.setDecimals(2)
+        self.multi_hazard_weight_slope.setSingleStep(0.05)
+        self.multi_hazard_weight_slope.setValue(0.2)
+
         layout.addRow(self.tr("Elevation unit"), self.z_unit_combo)
         layout.addRow(self.tr("Color palette"), self.palette_combo)
         layout.addRow(self.tr("GeoTIFF compression"), self.compression_combo)
@@ -494,6 +516,15 @@ class TerrainStudioDock(QDockWidget):
         note = QLabel(self.tr("Default Horn method is ideal for rugged terrain; Zevenbergen–Thorne fits smooth surfaces."))
         note.setWordWrap(True)
         layout.addRow(note)
+        layout.addRow(self.bundle_check)
+        weight_notes = QLabel(self.tr("Multi-hazard weights (landslide / TWI / slope, normalized)"))
+        weight_notes.setWordWrap(True)
+        layout.addRow(weight_notes)
+        weight_row = QHBoxLayout()
+        weight_row.addWidget(self.multi_hazard_weight_landslide, 1)
+        weight_row.addWidget(self.multi_hazard_weight_twi, 1)
+        weight_row.addWidget(self.multi_hazard_weight_slope, 1)
+        layout.addRow(weight_row)
         return tab
 
     def _create_report_tab(self):
@@ -932,6 +963,10 @@ class TerrainStudioDock(QDockWidget):
             "SMOOTHING": self.smoothing_combo.currentIndex(),
             "SIMPLIFY_TOLERANCE": self.simplify_tolerance.value(),
             "ACCUMULATION": self._last_accumulation or None,
+            "CREATE_BUNDLE": self.bundle_check.isChecked(),
+            "MULTIHAZARD_WEIGHT_LANDSLIDE": self.multi_hazard_weight_landslide.value(),
+            "MULTIHAZARD_WEIGHT_TWI": self.multi_hazard_weight_twi.value(),
+            "MULTIHAZARD_WEIGHT_SLOPE": self.multi_hazard_weight_slope.value(),
         }
         mode = self.extent_combo.currentData()
         if mode == "canvas" and self.iface and self.iface.mapCanvas():

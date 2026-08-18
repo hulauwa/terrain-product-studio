@@ -251,5 +251,6 @@ OUTPUT_LABELS = {
     "GEOMORPHON": "Geomorphon terrain forms",
     "SPI": "Stream Power Index (SPI)",
     "STI": "Sediment Transport Index (STI)",
+    "MULTIHAZARD": "Multi-hazard composite index",
 }
 

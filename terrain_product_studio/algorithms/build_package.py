@@ -43,10 +43,13 @@ from ..core.spot_elevations import extract_spot_elevations
 from ..core.geomorphon import classify_geomorphon
 from ..core.thematic_terrain import (
     calculate_landslide_hazard,
+    calculate_multihazard,
     calculate_slope_suitability,
     calculate_spi,
     calculate_sti,
+    calculate_twi,
 )
+from ..core.bundle import create_bundle
 from ..core.web_3d_viewer import generate_3d_web_viewer
 
 
@@ -97,6 +100,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     CREATE_GEOMORPHON = "CREATE_GEOMORPHON"
     CREATE_SPI = "CREATE_SPI"
     CREATE_STI = "CREATE_STI"
+    CREATE_MULTIHAZARD = "CREATE_MULTIHAZARD"
+    CREATE_BUNDLE = "CREATE_BUNDLE"
     CREATE_3D_VIEWER = "CREATE_3D_VIEWER"
     CREATE_INTELLIGENCE_REPORT = "CREATE_INTELLIGENCE_REPORT"
     CONTOUR_INTERVAL = "CONTOUR_INTERVAL"
@@ -106,6 +111,9 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     ACCUMULATION = "ACCUMULATION"
     GEOMORPHON_RADIUS_M = "GEOMORPHON_RADIUS_M"
     GEOMORPHON_TOLERANCE = "GEOMORPHON_TOLERANCE"
+    MULTIHAZARD_WEIGHT_LANDSLIDE = "MULTIHAZARD_WEIGHT_LANDSLIDE"
+    MULTIHAZARD_WEIGHT_TWI = "MULTIHAZARD_WEIGHT_TWI"
+    MULTIHAZARD_WEIGHT_SLOPE = "MULTIHAZARD_WEIGHT_SLOPE"
 
     WORKING_DEM = "WORKING_DEM"
     COLOR_RELIEF = "COLOR_RELIEF"
@@ -127,6 +135,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     GEOMORPHON = "GEOMORPHON"
     SPI = "SPI"
     STI = "STI"
+    MULTIHAZARD = "MULTIHAZARD"
+    BUNDLE = "BUNDLE"
     VIEWER_3D = "VIEWER_3D"
     INTELLIGENCE_REPORT = "INTELLIGENCE_REPORT"
     REPORT = "REPORT"
@@ -273,6 +283,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             (self.CREATE_GEOMORPHON, self.tr("Geomorphon terrain forms (10 classes)"), True),
             (self.CREATE_SPI, self.tr("Stream Power Index (SPI)"), True),
             (self.CREATE_STI, self.tr("Sediment Transport Index (STI)"), True),
+            (self.CREATE_MULTIHAZARD, self.tr("Multi-hazard composite index (landslide + TWI + slope)"), True),
             (self.CREATE_3D_VIEWER, self.tr("Interactive 3D Web Terrain Viewer (HTML)"), True),
             (self.CREATE_INTELLIGENCE_REPORT, self.tr("Topographic Intelligence Report (HTML)"), True),
         )
@@ -307,6 +318,43 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 minValue=0.0001,
                 maxValue=1.0,
                 defaultValue=0.01,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.MULTIHAZARD_WEIGHT_LANDSLIDE,
+                self.tr("Multi-hazard weight: landslide"),
+                type=_number_type_double(),
+                minValue=0.0,
+                maxValue=1.0,
+                defaultValue=0.5,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.MULTIHAZARD_WEIGHT_TWI,
+                self.tr("Multi-hazard weight: TWI"),
+                type=_number_type_double(),
+                minValue=0.0,
+                maxValue=1.0,
+                defaultValue=0.3,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.MULTIHAZARD_WEIGHT_SLOPE,
+                self.tr("Multi-hazard weight: slope"),
+                type=_number_type_double(),
+                minValue=0.0,
+                maxValue=1.0,
+                defaultValue=0.2,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.CREATE_BUNDLE,
+                self.tr("Export all products to a single GeoPackage bundle"),
+                defaultValue=True,
             )
         )
         self.addParameter(
@@ -372,6 +420,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         self.addOutput(QgsProcessingOutputRasterLayer(self.GEOMORPHON, self.tr("Geomorphon terrain forms")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.SPI, self.tr("Stream Power Index (SPI)")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.STI, self.tr("Sediment Transport Index (STI)")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.MULTIHAZARD, self.tr("Multi-hazard composite index")))
+        self.addOutput(QgsProcessingOutputFile(self.BUNDLE, self.tr("GeoPackage bundle of all products")))
         self.addOutput(QgsProcessingOutputFile(self.VIEWER_3D, self.tr("Interactive 3D Web Viewer")))
         self.addOutput(QgsProcessingOutputFile(self.INTELLIGENCE_REPORT, self.tr("Topographic Intelligence Report")))
         self.addOutput(QgsProcessingOutputFile(self.REPORT, self.tr("Processing report")))
@@ -500,6 +550,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             self.GEOMORPHON: self.parameterAsBool(parameters, self.CREATE_GEOMORPHON, context),
             self.SPI: self.parameterAsBool(parameters, self.CREATE_SPI, context),
             self.STI: self.parameterAsBool(parameters, self.CREATE_STI, context),
+            self.MULTIHAZARD: self.parameterAsBool(parameters, self.CREATE_MULTIHAZARD, context),
+            self.BUNDLE: self.parameterAsBool(parameters, self.CREATE_BUNDLE, context),
             self.VIEWER_3D: self.parameterAsBool(parameters, self.CREATE_3D_VIEWER, context),
             self.INTELLIGENCE_REPORT: self.parameterAsBool(parameters, self.CREATE_INTELLIGENCE_REPORT, context),
         }
@@ -510,7 +562,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             selected[self.LANDSLIDE_HAZARD] or selected[self.SPI] or selected[self.STI]
         )
 
-        step_count = sum(selected.values()) + 2
+        step_count = sum(selected.values()) + 4
         multi = QgsProcessingMultiStepFeedback(step_count, feedback)
         current_step = 0
         outputs = {self.OUTPUT_FOLDER: folder}
@@ -899,6 +951,94 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                     except Exception as err:
                         warnings.append(f"{label} notice: {err}")
 
+        # Multi-hazard Composite Index (0.5×landslide + 0.3×TWI + 0.2×slope)
+        if selected[self.MULTIHAZARD]:
+            if not multi.isCanceled():
+                multi.setCurrentStep(current_step)
+                current_step += 1
+                multi_hazard_path = self._output_path(folder, prefix, "multi_hazard", "tif")
+                multi.pushInfo(self.tr("Combining landslide, TWI and slope into a multi-hazard index…"))
+                try:
+                    slope_path = outputs.get(self.SLOPE)
+                    if not slope_path:
+                        slope_destination = self._output_path(folder, prefix, "slope_deg", "tif")
+                        slope_result = self._run_child(
+                            "gdal:slope",
+                            {
+                                "INPUT": working_dem,
+                                "BAND": band,
+                                "SCALE": scale,
+                                "AS_PERCENT": False,
+                                "COMPUTE_EDGES": True,
+                                "ZEVENBERGEN": zevenbergen,
+                                "OUTPUT": slope_destination,
+                                "CREATION_OPTIONS": creation_options,
+                                "OPTIONS": creation_options,
+                                "EXTRA": "",
+                            },
+                            context,
+                            multi,
+                        )
+                        slope_path = slope_result["OUTPUT"]
+                        outputs[self.SLOPE] = slope_path
+
+                    landslide_path = outputs.get(self.LANDSLIDE_HAZARD)
+                    if not landslide_path:
+                        landslide_path = self._output_path(folder, prefix, "landslide_hazard", "tif")
+                        ls_path = self._output_path(folder, prefix, "rusle_ls_factor", "tif")
+                        accumulation_source = accumulation_input or slope_path
+                        calculate_landslide_hazard(
+                            slope_path, accumulation_source, landslide_path, ls_path
+                        )
+                        outputs[self.LANDSLIDE_HAZARD] = landslide_path
+                        outputs[self.LS_FACTOR] = ls_path
+
+                    twi_path = None
+                    if accumulation_input:
+                        twi_path = self._output_path(folder, prefix, "twi", "tif")
+                        calculate_twi(accumulation_input, slope_path, twi_path)
+
+                    if twi_path:
+                        weights = (
+                            float(
+                                self.parameterAsDouble(
+                                    parameters, self.MULTIHAZARD_WEIGHT_LANDSLIDE, context
+                                )
+                            ),
+                            float(
+                                self.parameterAsDouble(
+                                    parameters, self.MULTIHAZARD_WEIGHT_TWI, context
+                                )
+                            ),
+                            float(
+                                self.parameterAsDouble(
+                                    parameters, self.MULTIHAZARD_WEIGHT_SLOPE, context
+                                )
+                            ),
+                        )
+                        stats = calculate_multihazard(
+                            landslide_path,
+                            twi_path,
+                            slope_path,
+                            multi_hazard_path,
+                            weights=weights,
+                        )
+                        if os.path.exists(multi_hazard_path):
+                            outputs[self.MULTIHAZARD] = multi_hazard_path
+                            multi.pushInfo(
+                                self.tr(
+                                    "Multi-hazard: {low}% low, {moderate}% moderate, "
+                                    "{high}% high".format(**stats)
+                                )
+                            )
+                    else:
+                        warnings.append(
+                            "Multi-hazard skipped: TWI needs a flow accumulation "
+                            "raster (run the Hydrology algorithm first)."
+                        )
+                except Exception as err:
+                    warnings.append(f"Multi-hazard notice: {err}")
+
         # 3D Interactive Web Viewer
         if selected[self.VIEWER_3D]:
             if not multi.isCanceled():
@@ -978,5 +1118,30 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         with open(report_path, "w", encoding="utf-8") as stream:
             json.dump(report, stream, ensure_ascii=False, indent=2)
         outputs[self.REPORT] = report_path
+
+        # GeoPackage bundle: every raster/vector product in one portable file
+        if selected[self.BUNDLE]:
+            if not multi.isCanceled():
+                multi.setCurrentStep(current_step)
+                current_step += 1
+                bundle_path = self._output_path(folder, prefix, "bundle", "gpkg")
+                multi.pushInfo(self.tr("Bundling all products into a single GeoPackage…"))
+                try:
+                    written = create_bundle(outputs, bundle_path, multi)
+                    if written:
+                        outputs[self.BUNDLE] = bundle_path
+                        multi.pushInfo(
+                            self.tr(
+                                f"Bundle: {len(written)} layers → "
+                                f"{os.path.basename(bundle_path)}"
+                            )
+                        )
+                    else:
+                        warnings.append(
+                            "Bundle skipped: no raster or vector products to bundle."
+                        )
+                except Exception as err:
+                    warnings.append(f"Bundle notice: {err}")
+
         multi.pushInfo(self.tr(f"Terrain package completed: {folder}"))
         return outputs

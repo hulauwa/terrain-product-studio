@@ -16,6 +16,7 @@ from .styles import (
     apply_geomorphon_style,
     apply_hillshade_style,
     apply_landslide_style,
+    apply_multihazard_style,
     apply_ridge_style,
     apply_ruggedness_style,
     apply_slope_style,
@@ -94,6 +95,7 @@ def add_terrain_results(
         "GEOMORPHON": (analysis_group, False),
         "SPI": (hydro_group, False),
         "STI": (hydro_group, False),
+        "MULTIHAZARD": (analysis_group, False),
         "FILLED_DEM": (quality_group, False),
         "WORKING_DEM": (quality_group, False),
     }
@@ -238,6 +240,8 @@ def add_terrain_results(
         apply_spi_style(layers["SPI"])
     if "STI" in layers:
         apply_sti_style(layers["STI"])
+    if "MULTIHAZARD" in layers:
+        apply_multihazard_style(layers["MULTIHAZARD"])
 
     analysis_group.setItemVisibilityChecked(False)
     quality_group.setItemVisibilityChecked(False)
