@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.0 — 2026-08-18
+
+Publication-grade release: smarter setup, deeper analysis, and shareable outputs.
+
+- **Smart Setup Assistant (M0)**: contour interval is suggested from AOI scale and terrain relief (snapped to the standard `1/2/2.5/5/10/20/25/50/100` table) with a one-click Apply; palette combo now shows real gradient thumbnails; new **Dark / Night** cartographic theme with a live swatch preview; paper-size combo (A4/A3/A1 × orientation) with one-line layout summary.
+- **Cartographic Smoothing (M1)**: Chaikin corner-cutting and Douglas–Peucker smoothing for contours and river networks — optional `SMOOTHING`/`SIMPLIFY_TOLERANCE` parameters on the algorithms and a smoothness combo in the dock.
+- **New Analytical Products (M2)**: Geomorphon terrain forms (Jasiewicz & Stepinski 2013), Stream Power Index (SPI) and Sediment Transport Index (STI); **bugfix** — landslide hazard now uses the real flow accumulation grid instead of slope as a proxy (new optional `ACCUMULATION` input).
+- **Multi-Hazard & Sharing (M3)**: weighted composite **multi-hazard index** (landslide × slope × TWI with user-adjustable weights) and a single **GeoPackage bundle** merging every generated raster and vector layer (byte rasters as lossless PNG tiles, float rasters via the OGC 2D-gridded-coverage extension) ready to share.
+- **3D Printing & Workflow (M4)**: binary **STL / OBJ** export of the terrain (≤1024² auto-downsampling, z exaggeration, optional base-plate extrusion into a watertight solid); **industry presets** (Urban, Agriculture, Disaster, Mining) that tick the right product set in one click; **run history** journal in the QGIS profile — reopen the folder and intelligence report of any of the last 20 runs from the Inspect tab.
+- Interactive 3D Web Viewer (from 1.2.0) extended with Z-up orbit controls.
+
 ## 1.2.0 — 2026-08-18
 
 - **Resubmission after QGIS Plugin Repository security review**: version 1.1.0 is already registered on the repository, so the fully-fixed build (same code as 1.1.0) is published under 1.2.0. Every finding from the automated scan that blocked the previous upload is resolved — Bandit B110 (silent exception handlers now report errors or use safe defaults), Bandit B608 (SQL-injection false positive removed by moving the HTML template to a module constant), Flake8 F821 (missing `from osgeo import gdal` import in the package builder), and 18 Qt6 scoped-enum usages made static-analysis-safe with `getattr()` fallbacks.
