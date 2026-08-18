@@ -39,6 +39,52 @@ def index_interval(minor_interval: float, multiplier: int = 5) -> float:
     return float(minor_interval * max(1, int(multiplier)))
 
 
+STANDARD_INTERVALS: Tuple[float, ...] = (
+    1.0, 2.0, 2.5, 5.0, 10.0, 20.0, 25.0, 50.0, 100.0, 200.0, 250.0, 500.0, 1000.0,
+)
+
+
+def snap_interval(value: float) -> float:
+    """Round a contour interval up to the nearest standard cartographic step."""
+
+    if not math.isfinite(value) or value <= 0:
+        return 1.0
+    for step in STANDARD_INTERVALS:
+        if value <= step:
+            return float(step)
+    exponent = math.floor(math.log10(value))
+    scale = 10.0**exponent
+    return float(math.ceil(value / scale) * scale)
+
+
+def suggest_contour_interval(
+    relief: float,
+    extent_width_m: float,
+    paper_width_m: float = 0.297,
+    desired_intervals: int = 25,
+) -> float:
+    """Suggest a publication contour interval from relief and AOI map scale.
+
+    Small AOIs (large map scale, e.g. a town) can carry many contour lines;
+    regional maps (small scale, e.g. a province) must thin them out to stay
+    legible. The result snaps to a standard cartographic step so the interval
+    reads naturally (1, 2, 2.5, 5, 10, 20, 25, 50 m ...).
+    """
+
+    scale = extent_width_m / max(paper_width_m, 0.001)
+    if scale < 20000:
+        target = max(1, int(desired_intervals))
+    elif scale < 50000:
+        target = 20
+    elif scale < 150000:
+        target = 15
+    elif scale < 400000:
+        target = 10
+    else:
+        target = 8
+    return snap_interval(nice_interval(relief, target))
+
+
 def utm_epsg_for_lon_lat(longitude: float, latitude: float) -> int:
     """Return a WGS 84 UTM EPSG code for a longitude/latitude position."""
 

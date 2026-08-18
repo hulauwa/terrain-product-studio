@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Tuple
 
 from qgis.core import (
@@ -12,7 +13,13 @@ from qgis.core import (
     QgsProject,
 )
 
-from .math_utils import estimate_output_bytes, human_bytes, nice_interval, utm_epsg_for_lon_lat
+from .math_utils import (
+    estimate_output_bytes,
+    human_bytes,
+    nice_interval,
+    suggest_contour_interval,
+    utm_epsg_for_lon_lat,
+)
 from .qgis_compat import all_raster_statistics_flag
 
 
@@ -103,6 +110,19 @@ def inspect_dem_layer(layer, band: int = 1, raster_outputs: int = 8) -> Dict[str
 
     estimate = estimate_output_bytes(width, height, raster_outputs)
 
+    # Map-scale intelligence from the AOI footprint: extent width converted to
+    # metres (approximate 111.32 km per degree at the central latitude for
+    # geographic CRSs; projected CRSs are assumed to use metre units).
+    if crs.isValid() and crs.isGeographic():
+        mid_latitude = (extent.yMinimum() + extent.yMaximum()) / 2.0
+        extent_width_m = abs(extent.width()) * 111320.0 * math.cos(math.radians(mid_latitude))
+    else:
+        extent_width_m = abs(extent.width())
+    estimated_scale = extent_width_m / 0.297  # A4 landscape reference width
+    suggested_interval = suggest_contour_interval(
+        robust_maximum - robust_minimum, extent_width_m
+    )
+
     # Scale-Aware Intelligence Metrics
     # Estimate pixel size in meters
     approx_px_m = pixel_x if not crs.isGeographic() else pixel_x * 111320.0
@@ -140,6 +160,8 @@ def inspect_dem_layer(layer, band: int = 1, raster_outputs: int = 8) -> Dict[str
         "approx_pixel_m": approx_px_m,
         "recommended_map_scale": rec_scale,
         "recommended_contour_interval": recommended or rec_contour,
+        "suggested_contour_interval": suggested_interval,
+        "estimated_map_scale": int(estimated_scale),
         "recommended_peak_density": rec_density,
         "crs": crs_name,
         "is_geographic": bool(crs.isGeographic()) if crs.isValid() else None,

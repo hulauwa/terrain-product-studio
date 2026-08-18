@@ -71,6 +71,17 @@ TERRAIN_PALETTES = {
             (1.00, 238, 238, 236),
         ),
     },
+    "terrain_dark": {
+        "label": "Dark night terrain",
+        "stops": (
+            (0.00, 26, 52, 70),
+            (0.18, 38, 68, 78),
+            (0.38, 60, 84, 80),
+            (0.58, 88, 94, 80),
+            (0.78, 116, 98, 82),
+            (1.00, 152, 142, 132),
+        ),
+    },
 }
 
 
@@ -160,6 +171,27 @@ CARTOGRAPHY_PRESETS = {
         "grid": "#696969",
         "orientation": "landscape",
         "legend_title": "LEGEND",
+    },
+    "night_dark": {
+        "label": "Dark / Night Map",
+        "description": "Night-time cartography: deep ink paper, warm contour lines and luminous water — built for dark screens and presentations.",
+        "palette": "terrain_dark",
+        "font": "Noto Sans",
+        "paper": "#0e1116",
+        "ink": "#e6e1d8",
+        "muted_ink": "#8a8a8a",
+        "contour_minor": "170,150,80,150",
+        "contour_index": "205,180,95,235",
+        "contour_master": "238,216,124,255",
+        "contour_label": "#e8d48a",
+        "water": "#4fc3f7",
+        "water_light": "#1b3a4d",
+        "accent": "#ff9d6b",
+        "ridge": "150,118,64,200",
+        "spot_elevation": "#ffb74d",
+        "grid": "#4c5561",
+        "orientation": "landscape",
+        "legend_title": "MAP SYMBOLS",
     },
 }
 

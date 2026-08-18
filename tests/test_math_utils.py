@@ -3,12 +3,15 @@ import tempfile
 import unittest
 
 from terrain_product_studio.core.math_utils import (
+    STANDARD_INTERVALS,
     estimate_output_bytes,
     human_bytes,
     index_interval,
     interpolate_color_stops,
     nice_interval,
     sanitize_prefix,
+    snap_interval,
+    suggest_contour_interval,
     unique_path,
     utm_epsg_for_lon_lat,
 )
@@ -59,6 +62,25 @@ class MathUtilsTests(unittest.TestCase):
     def test_size_helpers(self):
         self.assertEqual(estimate_output_bytes(100, 100, 2, 4, 1), 80000)
         self.assertEqual(human_bytes(1024), "1.0 KB")
+
+    def test_snap_interval(self):
+        self.assertEqual(snap_interval(3.0), 5.0)
+        self.assertEqual(snap_interval(10.0), 10.0)
+        self.assertEqual(snap_interval(12.0), 20.0)
+        self.assertEqual(snap_interval(27.0), 50.0)
+        self.assertEqual(snap_interval(0.5), 1.0)
+        self.assertEqual(snap_interval(-4.0), 1.0)
+
+    def test_suggest_contour_interval_scales_with_aoi(self):
+        # Small AOI (2 km town) keeps a fine interval; large AOI (100 km
+        # province) thins contours out to keep the map legible.
+        small = suggest_contour_interval(relief=500.0, extent_width_m=2000.0)
+        large = suggest_contour_interval(relief=500.0, extent_width_m=100000.0)
+        self.assertLess(small, large)
+        self.assertIn(small, STANDARD_INTERVALS)
+        self.assertIn(large, STANDARD_INTERVALS)
+        # Flat terrain still produces a sensible minimum.
+        self.assertGreaterEqual(suggest_contour_interval(1.0, 10000.0), 1.0)
 
     def test_unique_path_does_not_overwrite(self):
         with tempfile.TemporaryDirectory() as folder:

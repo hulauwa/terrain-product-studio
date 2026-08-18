@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
+import math
 import os
 
 from qgis.PyQt.QtCore import QDir, QCoreApplication, QUrl, Qt
-from qgis.PyQt.QtGui import QFontDatabase, QDesktopServices
+from qgis.PyQt.QtGui import (
+    QBrush,
+    QColor,
+    QDesktopServices,
+    QFont,
+    QFontDatabase,
+    QIcon,
+    QLinearGradient,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -66,6 +78,8 @@ class TerrainStudioDock(QDockWidget):
         self._terrain_results = None
         self._phase = None
         self._fonts_populated = False
+        self._contour_suggestion = None
+        self._last_layout_layers = None
         self._build_ui()
         self._connect_signals()
         self._on_layer_changed(self.dem_combo.currentLayer())
@@ -275,6 +289,19 @@ class TerrainStudioDock(QDockWidget):
         self.index_multiplier.setValue(5)
         self.index_preview = QLabel()
         layout.addRow(self.contour_check)
+        suggestion_row = QHBoxLayout()
+        self.contour_suggestion_label = QLabel(
+            self.tr("Suggested interval: — (run Inspect DEM)")
+        )
+        self.contour_suggestion_label.setStyleSheet(
+            "color: #8b949e; font-size: 11px;"
+        )
+        self.contour_suggestion_label.setWordWrap(True)
+        self.apply_suggestion_button = QPushButton(self.tr("Apply"))
+        self.apply_suggestion_button.setEnabled(False)
+        suggestion_row.addWidget(self.contour_suggestion_label, 1)
+        suggestion_row.addWidget(self.apply_suggestion_button)
+        layout.addRow(suggestion_row)
         layout.addRow(self.tr("Contour interval"), self.contour_interval)
         layout.addRow(self.tr("Index multiplier (every Nth line)"), self.index_multiplier)
         layout.addRow(self.tr("Index contour interval"), self.index_preview)
@@ -325,6 +352,34 @@ class TerrainStudioDock(QDockWidget):
             self.cartography_combo.addItem(preset["label"], key)
         self.cartography_description = QLabel()
         self.cartography_description.setWordWrap(True)
+        self.theme_preview = QLabel()
+        self.theme_preview.setFixedSize(164, 84)
+        try:
+            self.theme_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        except AttributeError:
+            self.theme_preview.setAlignment(getattr(Qt, "AlignCenter"))
+        paper_row = QWidget()
+        paper_layout = QHBoxLayout(paper_row)
+        paper_layout.setContentsMargins(0, 0, 0, 0)
+        self.paper_combo = QComboBox()
+        for key, label in (
+            ("auto", self.tr("Auto (fit extent)")),
+            ("a4", "A4"),
+            ("a3", "A3"),
+            ("a1", "A1"),
+        ):
+            self.paper_combo.addItem(label, key)
+        self.orientation_combo = QComboBox()
+        for key, label in (
+            ("auto", self.tr("Auto")),
+            ("portrait", self.tr("Portrait")),
+            ("landscape", self.tr("Landscape")),
+        ):
+            self.orientation_combo.addItem(label, key)
+        paper_layout.addWidget(self.paper_combo)
+        paper_layout.addWidget(self.orientation_combo)
+        self.create_layout_button = QPushButton(self.tr("Create Layout Now"))
+        self.create_layout_button.setEnabled(False)
         # Plain combo populated lazily on first Layout-tab visit: scanning the
         # system font database at dock startup was a noticeable UI freeze.
         self.font_combo = QComboBox()
@@ -352,7 +407,10 @@ class TerrainStudioDock(QDockWidget):
         self.layout_dpi.setValue(300)
         self.layout_dpi.setSuffix(" dpi")
         layout.addRow(self.tr("Map template"), self.cartography_combo)
+        layout.addRow(self.theme_preview)
         layout.addRow(self.cartography_description)
+        layout.addRow(self.tr("Paper size"), paper_row)
+        layout.addRow(self.create_layout_button)
         layout.addRow(self.tr("Font family"), self.font_combo)
         layout.addRow(self.tr("Layout name"), self.layout_name_edit)
         layout.addRow(self.tr("Map title"), self.map_title_edit)
@@ -373,7 +431,9 @@ class TerrainStudioDock(QDockWidget):
         self.z_unit_combo.addItems([self.tr("Meters"), self.tr("Feet")])
         self.palette_combo = QComboBox()
         for key, preset in TERRAIN_PALETTES.items():
-            self.palette_combo.addItem(preset["label"], key)
+            self.palette_combo.addItem(
+                self._palette_preview(preset["stops"]), preset["label"], key
+            )
         self.compression_combo = QComboBox()
         self.compression_combo.addItems(["DEFLATE", "ZSTD", "LZW", "NONE"])
         self.auto_reproject_check = QCheckBox(self.tr("Automatically reproject geographic DEM to UTM"))
@@ -437,6 +497,8 @@ class TerrainStudioDock(QDockWidget):
             self._on_cartography_preset_changed
         )
         self.create_layout_check.toggled.connect(self._update_layout_controls)
+        self.apply_suggestion_button.clicked.connect(self._apply_contour_suggestion)
+        self.create_layout_button.clicked.connect(self._create_layout_now)
         self.quick_button.clicked.connect(self._select_quick)
         self.full_button.clicked.connect(self._select_all)
         self.clear_button.clicked.connect(self._clear_selection)
@@ -572,6 +634,11 @@ class TerrainStudioDock(QDockWidget):
         bands = layer.bandCount() if layer is not None and layer.isValid() else 1
         self.band_spin.setRange(1, max(1, bands))
         self.band_spin.setValue(1)
+        self._contour_suggestion = None
+        self.contour_suggestion_label.setText(
+            self.tr("Suggested interval: — (run Inspect DEM)")
+        )
+        self.apply_suggestion_button.setEnabled(False)
         if layer is not None and layer.isValid():
             self.prefix_edit.setText(sanitize_prefix(layer.name()))
             if hasattr(self, "layout_name_edit"):
@@ -609,11 +676,111 @@ class TerrainStudioDock(QDockWidget):
         preset_key = self.cartography_combo.currentData() or "usgs_classic"
         preset = CARTOGRAPHY_PRESETS[preset_key]
         self.cartography_description.setText(preset["description"])
+        self.theme_preview.setPixmap(self._theme_preview_pixmap(preset))
         if self.font_combo.count():
             self.font_combo.setCurrentText(preset["font"])
         palette_index = self.palette_combo.findData(preset["palette"])
         if palette_index >= 0:
             self.palette_combo.setCurrentIndex(palette_index)
+
+    @staticmethod
+    def _preset_color(value):
+        """Parse a preset color like '166,116,66,170' or '#833e25' into QColor."""
+        text = str(value).strip()
+        if text.startswith("#"):
+            return QColor(text)
+        parts = [int(part) for part in text.split(",")]
+        return QColor(*parts)
+
+    @staticmethod
+    def _palette_preview(stops, width=96, height=20):
+        """Render a TERRAIN_PALETTES stop list as a gradient thumbnail icon."""
+        pixmap = QPixmap(width, height)
+        pixmap.fill(QColor(255, 255, 255, 0))
+        painter = QPainter(pixmap)
+        gradient = QLinearGradient(0, 0, width, 0)
+        for position, red, green, blue in stops:
+            gradient.setColorAt(float(position), QColor(red, green, blue))
+        painter.fillRect(0, 0, width, height, QBrush(gradient))
+        painter.setPen(QPen(QColor(110, 110, 110), 1))
+        painter.drawRect(0, 0, width - 1, height - 1)
+        painter.end()
+        return QIcon(pixmap)
+
+    @classmethod
+    def _theme_preview_pixmap(cls, preset, width=164, height=84):
+        """Miniature map swatch: paper colour, contour lines, water and type."""
+        pixmap = QPixmap(width, height)
+        pixmap.fill(QColor(preset["paper"]))
+        painter = QPainter(pixmap)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        except AttributeError:
+            painter.setRenderHint(getattr(QPainter, "Antialiasing"))
+        contour_colors = (
+            cls._preset_color(preset["contour_minor"]),
+            cls._preset_color(preset["contour_index"]),
+            cls._preset_color(preset["contour_master"]),
+        )
+        for line, color in enumerate(contour_colors):
+            pen = QPen(color)
+            pen.setWidth(line + 1)
+            painter.setPen(pen)
+            base_y = 22 + line * 17
+            points = [
+                (x, base_y + int(3.0 * math.sin(x / 12.0 + line)))
+                for x in range(4, width - 4, 4)
+            ]
+            for index in range(len(points) - 1):
+                painter.drawLine(points[index][0], points[index][1], points[index + 1][0], points[index + 1][1])
+        painter.setPen(QPen(cls._preset_color(preset["water"]), 2))
+        painter.drawLine(10, height - 14, width - 10, height - 14)
+        painter.setPen(QColor(preset["ink"]))
+        try:
+            painter.setFont(QFont(preset.get("font", "Sans Serif"), 8, QFont.Weight.Bold))
+        except AttributeError:
+            painter.setFont(QFont(preset.get("font", "Sans Serif"), 8, getattr(QFont, "Bold")))
+        painter.drawText(8, 14, preset["label"])
+        painter.end()
+        return pixmap
+
+    def _apply_contour_suggestion(self):
+        suggestion = getattr(self, "_contour_suggestion", None)
+        if suggestion:
+            self.contour_interval.setValue(float(suggestion))
+
+    def _create_layout_now(self):
+        if not self._last_layout_layers:
+            QMessageBox.information(
+                self,
+                self.tr("No generated layers"),
+                self.tr("Run the terrain package first, then create the layout."),
+            )
+            return
+        config = self._cartography_config()
+        config["create_layout"] = True
+        config["open_layout"] = True
+        north_arrow = os.path.join(
+            os.path.dirname(__file__), "icons", "north_arrow_classic.svg"
+        )
+        try:
+            layout, exported = create_terrain_layout(
+                QgsProject.instance(),
+                self._last_layout_layers,
+                self.output_edit.text().strip(),
+                config,
+                north_arrow,
+            )
+            self.iface.openLayoutDesigner(layout)
+            self.report_edit.appendPlainText(f"Layout: {layout.name()}")
+            if exported:
+                self.report_edit.appendPlainText(
+                    f"{self.tr('Exported')}:\n" + "\n".join(exported)
+                )
+        except Exception as error:
+            QMessageBox.warning(
+                self, self.tr("Layout"), f"Could not create layout: {error}"
+            )
 
     def _on_tab_changed(self, index):
         if index == self.cartography_tab_index and not self._fonts_populated:
@@ -670,7 +837,23 @@ class TerrainStudioDock(QDockWidget):
             QMessageBox.critical(self, self.tr("Could not inspect DEM"), str(error))
             return
         self.report_edit.setPlainText(format_dem_report(info))
-        self.contour_interval.setValue(info["recommended_contour_interval"])
+        suggested = float(
+            info.get("suggested_contour_interval")
+            or info["recommended_contour_interval"]
+        )
+        self._contour_suggestion = suggested
+        z_unit = self.z_unit_combo.currentIndex()
+        unit = "m" if z_unit == 0 else "ft"
+        estimated_scale = int(info.get("estimated_map_scale") or 0)
+        if estimated_scale > 0:
+            suggestion_text = (
+                f"{self.tr('Suggested interval')} (≈1:{estimated_scale:,} "
+                f"{self.tr('map scale')}): {suggested:g} {unit}"
+            )
+        else:
+            suggestion_text = f"{self.tr('Suggested interval')}: {suggested:g} {unit}"
+        self.contour_suggestion_label.setText(suggestion_text)
+        self.apply_suggestion_button.setEnabled(True)
         self.tabs.setCurrentIndex(self.report_tab_index)
 
     def _update_index_preview(self):
@@ -743,6 +926,8 @@ class TerrainStudioDock(QDockWidget):
             "export_pdf": self.export_pdf_check.isChecked(),
             "export_png": self.export_png_check.isChecked(),
             "dpi": self.layout_dpi.value(),
+            "paper_size": self.paper_combo.currentData() or "auto",
+            "orientation": self.orientation_combo.currentData() or "auto",
             "export_prefix": sanitize_prefix(self.prefix_edit.text()),
             "create_hydrology": self.hydrology_check.isChecked(),
             "stream_threshold_ha": self.stream_threshold.value(),
@@ -923,6 +1108,8 @@ class TerrainStudioDock(QDockWidget):
             config["font_family"],
             return_layers=True,
         )
+        self._last_layout_layers = layers
+        self.create_layout_button.setEnabled(bool(layers))
         report_path = str(final_results.get("REPORT", ""))
         self.report_edit.appendPlainText(
             f"\n{self.tr('Finished. Loaded')} {loaded} {self.tr('layers into project.')}\n{self.tr('Report')}: {report_path}"

@@ -139,9 +139,28 @@ def create_terrain_layout(
     bbox_h = max(1e-3, extent.height())
     bbox_aspect = bbox_w / bbox_h
 
-    # Dynamically select orientation and dimensions based on bounding box
+    # Dynamically select orientation and dimensions based on bounding box;
+    # an explicit paper size / orientation in the config overrides the auto fit.
     landscape = bbox_aspect >= 0.95
-    page_width, page_height = (297.0, 210.0) if landscape else (210.0, 297.0)
+    paper_sizes = {"a4": (210.0, 297.0), "a3": (297.0, 420.0), "a1": (594.0, 841.0)}
+    paper_key = (config.get("paper_size") or "auto").lower()
+    orientation_key = (config.get("orientation") or "auto").lower()
+    if paper_key in paper_sizes:
+        width_a, height_a = paper_sizes[paper_key]
+        if orientation_key == "portrait":
+            page_width, page_height = height_a, width_a
+        elif orientation_key == "landscape":
+            page_width, page_height = width_a, height_a
+        else:  # auto orientation keeps the bounding-box choice
+            page_width, page_height = (
+                (width_a, height_a) if landscape else (height_a, width_a)
+            )
+    else:
+        page_width, page_height = (297.0, 210.0) if landscape else (210.0, 297.0)
+    # Every A-series sheet shares the √2:1 aspect ratio, so a single uniform
+    # factor scales the whole A4-base layout to A3/A1 without distortion.
+    page_is_landscape = page_width > page_height
+    paper_scale = page_width / 297.0 if page_is_landscape else page_height / 297.0
     page = layout.pageCollection().page(0)
     page.setPageSize(
         QgsLayoutSize(page_width, page_height, Qgis.LayoutUnit.Millimeters)
@@ -156,7 +175,7 @@ def create_terrain_layout(
         )
     )
 
-    if landscape:
+    if page_is_landscape:
         avail_w, avail_h = 218.0, 160.0
         # Adapt map size to bbox aspect ratio without distortion
         if bbox_aspect >= (avail_w / avail_h):
@@ -173,6 +192,7 @@ def create_terrain_layout(
         scale_box = (240.0, 152.0, 44.0, 12.0)
         meta_box = (239.0, 167.0, 46.0, 24.0)
         title_width = 269.0
+
     else:
         avail_w, avail_h = 184.0, 188.0
         if bbox_aspect >= (avail_w / avail_h):
@@ -190,27 +210,38 @@ def create_terrain_layout(
         meta_box = (111.0, 263.0, 80.0, 18.0)
         title_width = 184.0
 
+    if paper_scale != 1.0:
+        map_box = tuple(value * paper_scale for value in map_box)
+        legend_box = tuple(value * paper_scale for value in legend_box)
+        north_box = tuple(value * paper_scale for value in north_box)
+        scale_box = tuple(value * paper_scale for value in scale_box)
+        meta_box = tuple(value * paper_scale for value in meta_box)
+        title_width *= paper_scale
+        title_size, subtitle_size = 22.0 * paper_scale, 9.0 * paper_scale
+    else:
+        title_size, subtitle_size = (22.0, 9.0) if page_is_landscape else (19.0, 9.0)
+
     _add_label(
         layout,
         title.upper(),
-        14.0 if landscape else 13.0,
-        8.0,
+        14.0 * paper_scale,
+        8.0 * paper_scale,
         title_width,
-        12.0,
+        12.0 * paper_scale,
         font_family,
-        22.0 if landscape else 19.0,
+        title_size,
         preset["ink"],
         True,
     )
     _add_label(
         layout,
         subtitle,
-        14.0 if landscape else 13.0,
-        20.0,
+        14.0 * paper_scale,
+        20.0 * paper_scale,
         title_width,
-        7.0,
+        7.0 * paper_scale,
         font_family,
-        9.0,
+        subtitle_size,
         preset["muted_ink"],
     )
 
