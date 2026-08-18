@@ -130,11 +130,11 @@ Xuất ra file HTML tổng hợp (`<prefix>_topographic_intelligence_report.html
 ## 🚀 Hướng Dẫn Cài Đặt
 
 ### Cách 1: Cài đặt qua file ZIP (Khuyến nghị)
-1. Tải file `terrain_product_studio-1.1.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Tải file `terrain_product_studio-1.2.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Trong QGIS, vào menu **Plugins (Tiện ích)** $\rightarrow$ **Manage and Install Plugins... (Quản lý và Cài đặt Tiện ích...)**.
 3. Chọn tab **Install from ZIP (Cài đặt từ ZIP)** $\rightarrow$ Chọn file `.zip` vừa tải $\rightarrow$ Nhấn **Install Plugin**.
 
-> **v1.1.0**: Dock có thanh cuộn linh hoạt (nút Build không bao giờ bị khuất), tab Products bố trí lưới 2 cột gọn gàng, và khởi động nhanh hơn ~40% (font chỉ tải khi mở tab Layout).
+> **v1.2.0**: Sửa toàn bộ lỗi từ quét bảo mật QGIS Plugin Repository (Bandit B110/B608, Flake8 F821, Qt6 scoped enum) — đăng lại dưới số hiệu phiên bản mới vì 1.1.0 đã tồn tại trên repository. Kèm dock cuộn linh hoạt (nút Build không bao giờ bị khuất), tab Products bố trí lưới 2 cột gọn gàng, và khởi động nhanh hơn ~40% (font chỉ tải khi mở tab Layout).
 
 ### Cách 2: Sao chép thủ công vào thư mục Plugins của QGIS
 Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng với hệ điều hành:

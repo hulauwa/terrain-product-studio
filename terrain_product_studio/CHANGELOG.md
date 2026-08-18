@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0 — 2026-08-18
+
+- **Resubmission after QGIS Plugin Repository security review**: version 1.1.0 is already registered on the repository, so the fully-fixed build (same code as 1.1.0) is published under 1.2.0. Every finding from the automated scan that blocked the previous upload is resolved — Bandit B110 (silent exception handlers now report errors or use safe defaults), Bandit B608 (SQL-injection false positive removed by moving the HTML template to a module constant), Flake8 F821 (missing `from osgeo import gdal` import in the package builder), and 18 Qt6 scoped-enum usages made static-analysis-safe with `getattr()` fallbacks.
+
 ## 1.1.0 — 2026-08-18
 
 - **Run button no longer hidden**: dock body is wrapped in a `QScrollArea`, so the progress bar and Build/Cancel buttons stay reachable when QGIS docks the panel into a small area (previously clipped with the fixed 480×810 dock).
