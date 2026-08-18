@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0 — 2026-08-18
+
+- **Run button no longer hidden**: dock body is wrapped in a `QScrollArea`, so the progress bar and Build/Cancel buttons stay reachable when QGIS docks the panel into a small area (previously clipped with the fixed 480×810 dock).
+- **Compact Products tab**: product checkboxes arranged in a 2-column grid with word-wrapping labels — halves the tab height and keeps the whole dock short.
+- **Faster dock startup (~40% quicker)**: system font scanning is deferred until the Layout tab is first opened instead of enumerating 180+ fonts at dock construction (~390 ms → ~210 ms).
+- **Test coverage**: added `tests/qgis_ui_render_check.py` (offscreen render check that the Run button is scroll-reachable at any dock size); updated stale UI-probe and smoke-test expectations (15 products, `terrainstudio:buildhydrology`).
+
 ## 1.0.0 — 2026-08-17
 
 - **QGIS Publishing Compliance**: License updated to GNU GPL v2.0-or-later; updated `metadata.txt` with required author, email, repository, homepage, and tracker fields.
