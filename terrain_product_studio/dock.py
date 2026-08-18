@@ -37,7 +37,6 @@ from qgis.core import (
     QgsProcessingFeedback,
     QgsProject,
     QgsRasterLayer,
-    QgsRectangle,
     QgsReferencedRectangle,
     QgsSettings,
 )
@@ -101,7 +100,7 @@ class TerrainStudioDock(QDockWidget):
         try:
             self.dem_combo.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
         except AttributeError:
-            self.dem_combo.setFilters(QgsMapLayerProxyModel.RasterLayer)
+            self.dem_combo.setFilters(getattr(QgsMapLayerProxyModel, "RasterLayer"))
         self.browse_dem_button = QPushButton(self.tr("Open DEM…"))
         self.band_spin = QSpinBox()
         self.band_spin.setRange(1, 1)
@@ -206,12 +205,12 @@ class TerrainStudioDock(QDockWidget):
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         except AttributeError:  # Qt 5 unscoped enum
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll.setHorizontalScrollBarPolicy(getattr(Qt, "ScrollBarAsNeeded"))
+            scroll.setVerticalScrollBarPolicy(getattr(Qt, "ScrollBarAsNeeded"))
         try:
             scroll.setFrameShape(QFrame.Shape.NoFrame)
         except AttributeError:  # Qt 5 fallback
-            scroll.setFrameShape(QFrame.NoFrame)
+            scroll.setFrameShape(getattr(QFrame, "NoFrame"))
         scroll.setWidget(body)
 
         self.setWidget(scroll)
@@ -885,8 +884,10 @@ class TerrainStudioDock(QDockWidget):
                         suitability_path=final_results.get("SUITABILITY"),
                         hazard_path=final_results.get("LANDSLIDE_HAZARD"),
                     )
-                except Exception:
-                    pass
+                except Exception as error:
+                    self.report_edit.appendPlainText(
+                        f"{self.tr('3D Web Map refresh warning')}: {error}"
+                    )
 
             intel_target = final_results.get("INTELLIGENCE_REPORT")
             if intel_target and os.path.exists(str(intel_target)):
@@ -902,8 +903,10 @@ class TerrainStudioDock(QDockWidget):
                         hazard_path=final_results.get("LANDSLIDE_HAZARD"),
                         twi_path=final_results.get("TWI"),
                     )
-                except Exception:
-                    pass
+                except Exception as error:
+                    self.report_edit.appendPlainText(
+                        f"{self.tr('Intelligence Report refresh warning')}: {error}"
+                    )
 
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)

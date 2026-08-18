@@ -10,10 +10,8 @@ Features:
 from __future__ import annotations
 
 import collections
-import json
 import math
 import os
-import re
 import numpy as np
 from osgeo import gdal, ogr, osr
 
@@ -246,7 +244,7 @@ def _write_continuous_stream_network(
             gjson_ds.CopyLayer(layer, "potential_streams")
             gjson_ds = None
         except Exception:
-            pass
+            gjson_ds = None
 
     return len(reaches), max_order_found
 

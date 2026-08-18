@@ -7,6 +7,8 @@ import math
 import os
 from datetime import datetime, timezone
 
+from osgeo import gdal
+
 from qgis import processing
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
@@ -46,7 +48,7 @@ def _number_type_double():
     try:
         return QgsProcessingParameterNumber.Type.Double
     except AttributeError:
-        return QgsProcessingParameterNumber.Double
+        return getattr(QgsProcessingParameterNumber, "Double")
 
 
 def _number_type_integer():
@@ -54,7 +56,7 @@ def _number_type_integer():
     try:
         return QgsProcessingParameterNumber.Type.Integer
     except AttributeError:
-        return QgsProcessingParameterNumber.Integer
+        return getattr(QgsProcessingParameterNumber, "Integer")
 
 
 class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
@@ -345,7 +347,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             try:
                 dist_meters = QgsUnitTypes.DistanceUnit.DistanceMeters
             except AttributeError:
-                dist_meters = QgsUnitTypes.DistanceMeters
+                dist_meters = getattr(QgsUnitTypes, "DistanceMeters")
             factor = QgsUnitTypes.fromUnitToUnitFactor(crs.mapUnits(), dist_meters)
             if math.isfinite(factor) and factor > 0:
                 return float(factor)
@@ -503,7 +505,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                     # Fallback if translate did not output
                     if working_dem != clipped_path:
                         try:
-                            clip_res = self._run_child(
+                            self._run_child(
                                 "gdal:cliprasterbyextent",
                                 {
                                     "INPUT": working_dem,

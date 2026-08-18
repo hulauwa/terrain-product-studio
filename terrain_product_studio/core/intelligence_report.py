@@ -8,10 +8,9 @@ publication-quality HTML intelligence dashboard.
 from __future__ import annotations
 
 import collections
-import json
 import math
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 import numpy as np
 from osgeo import gdal, ogr
 
@@ -71,7 +70,7 @@ def generate_intelligence_report(
                     max_slope = float(np.max(sl_arr[sl_valid]))
                 sl_ds = None
         except Exception:
-            pass
+            sl_ds = None
 
     # Hypsometric 10-bin histogram
     bins = 10
@@ -115,7 +114,7 @@ def generate_intelligence_report(
                     aspect_stats[name] = round(float(np.count_nonzero(asp_valid & mask)) / tot_asp * 100.0, 1)
                 a_ds = None
         except Exception:
-            pass
+            a_ds = None
 
     # Build SVG Aspect Rose Polar Chart
     # Radar polygon coordinates
@@ -156,7 +155,7 @@ def generate_intelligence_report(
                     stream_orders[int(order_val or 1)] += float(length_m or 0.0) / 1000.0
                 v_ds = None
         except Exception:
-            pass
+            v_ds = None
 
     drainage_density = round(total_stream_km / max(1e-4, total_area_km2), 2)
 
@@ -183,7 +182,7 @@ def generate_intelligence_report(
                     suit_rows.append({"code": code_label, "desc": desc, "color": color, "pct": p, "ha": ha})
                 s_ds = None
         except Exception:
-            pass
+            s_ds = None
 
     # Landslide Hazard Stats
     hazard_rows = []
@@ -207,7 +206,7 @@ def generate_intelligence_report(
                     hazard_rows.append({"code": code_label, "desc": desc, "color": color, "pct": p, "ha": ha})
                 h_ds = None
         except Exception:
-            pass
+            h_ds = None
 
     # TWI stats
     twi_mean = 0.0
@@ -223,7 +222,7 @@ def generate_intelligence_report(
                     twi_max = float(np.max(t_arr[t_valid]))
                 t_ds = None
         except Exception:
-            pass
+            t_ds = None
 
     suit_html_section = ""
     if suit_rows:

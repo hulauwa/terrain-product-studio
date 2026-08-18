@@ -16,4 +16,4 @@ def all_raster_statistics_flag():
     try:
         return QgsRasterBandStats.Stats.All
     except AttributeError:
-        return QgsRasterBandStats.All
+        return getattr(QgsRasterBandStats, "All")

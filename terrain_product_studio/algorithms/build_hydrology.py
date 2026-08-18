@@ -33,7 +33,7 @@ def _number_type_double():
     try:
         return QgsProcessingParameterNumber.Type.Double
     except AttributeError:
-        return QgsProcessingParameterNumber.Double
+        return getattr(QgsProcessingParameterNumber, "Double")
 
 
 class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
@@ -155,7 +155,7 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
             try:
                 dist_meters = QgsUnitTypes.DistanceUnit.DistanceMeters
             except AttributeError:
-                dist_meters = QgsUnitTypes.DistanceMeters
+                dist_meters = getattr(QgsUnitTypes, "DistanceMeters")
             factor = QgsUnitTypes.fromUnitToUnitFactor(crs.mapUnits(), dist_meters)
             if math.isfinite(factor) and factor > 0:
                 return float(factor)

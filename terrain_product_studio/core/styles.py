@@ -40,8 +40,8 @@ def _pseudocolor(layer, items, discrete=False):
         ramp_discrete = QgsColorRampShader.Type.Discrete
         ramp_interp = QgsColorRampShader.Type.Interpolated
     except AttributeError:
-        ramp_discrete = QgsColorRampShader.Discrete
-        ramp_interp = QgsColorRampShader.Interpolated
+        ramp_discrete = getattr(QgsColorRampShader, "Discrete")
+        ramp_interp = getattr(QgsColorRampShader, "Interpolated")
     ramp.setColorRampType(ramp_discrete if discrete else ramp_interp)
     ramp.setColorRampItemList(
         [
@@ -65,7 +65,7 @@ def apply_hillshade_style(layer, opacity=0.36):
     try:
         stretch_algo = QgsContrastEnhancement.ContrastEnhancementAlgorithm.StretchToMinimumMaximum
     except AttributeError:
-        stretch_algo = QgsContrastEnhancement.StretchToMinimumMaximum
+        stretch_algo = getattr(QgsContrastEnhancement, "StretchToMinimumMaximum")
     enhancement.setContrastEnhancementAlgorithm(stretch_algo)
     renderer.setContrastEnhancement(enhancement)
     layer.setRenderer(renderer)
@@ -73,7 +73,7 @@ def apply_hillshade_style(layer, opacity=0.36):
     try:
         multiply_mode = QPainter.CompositionMode.CompositionMode_Multiply
     except AttributeError:  # Qt 5 unscoped enum
-        multiply_mode = QPainter.CompositionMode_Multiply
+        multiply_mode = getattr(QPainter, "CompositionMode_Multiply")
     layer.setBlendMode(multiply_mode)
     layer.triggerRepaint()
 
@@ -200,7 +200,7 @@ def apply_contour_style(
     try:
         labels.placement = QgsPalLayerSettings.Placement.Line
     except AttributeError:
-        labels.placement = QgsPalLayerSettings.Line
+        labels.placement = getattr(QgsPalLayerSettings, "Line")
     labels.isExpression = True
     decimals = 0 if abs(index - round(index)) < 1e-9 else 2
     labels.fieldName = (
@@ -212,7 +212,7 @@ def apply_contour_style(
     try:
         labels.repeatDistanceUnit = QgsUnitTypes.RenderUnit.RenderMillimeters
     except AttributeError:
-        labels.repeatDistanceUnit = QgsUnitTypes.RenderMillimeters
+        labels.repeatDistanceUnit = getattr(QgsUnitTypes, "RenderMillimeters")
     labels.setFormat(text_format)
     layer.setLabeling(QgsVectorLayerSimpleLabeling(labels))
     layer.setLabelsEnabled(True)
@@ -257,7 +257,7 @@ def apply_spot_elevation_style(layer, preset_key="usgs_classic", font_family=Non
     try:
         labels.placement = QgsPalLayerSettings.Placement.OrderedPositionsAroundPoint
     except AttributeError:
-        labels.placement = QgsPalLayerSettings.OrderedPositionsAroundPoint
+        labels.placement = getattr(QgsPalLayerSettings, "OrderedPositionsAroundPoint")
     labels.fieldName = "LABEL"
     labels.setFormat(text_format)
     layer.setLabeling(QgsVectorLayerSimpleLabeling(labels))

@@ -60,9 +60,9 @@ class TerrainProductStudioPlugin:
             self.dock.setObjectName("TerrainProductStudioDock")
             self.dock.visibilityChanged.connect(self.action.setChecked)
             try:
-                dock_area = Qt.RightDockWidgetArea
-            except AttributeError:  # Qt 6 scoped enum used by QGIS 4
                 dock_area = Qt.DockWidgetArea.RightDockWidgetArea
+            except AttributeError:  # Qt 5 unscoped enum
+                dock_area = getattr(Qt, "RightDockWidgetArea")
             self.iface.addDockWidget(dock_area, self.dock)
         self.dock.show()
         self.dock.raise_()

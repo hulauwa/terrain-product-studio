@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
-from typing import Iterable, List, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 
 NICE_STEPS: Tuple[float, ...] = (1.0, 2.0, 2.5, 5.0, 10.0)
