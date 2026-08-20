@@ -47,9 +47,6 @@ from qgis.PyQt.QtWidgets import (
 from qgis.core import (
     QgsApplication,
     QgsMapLayerProxyModel,
-    QgsProcessingAlgRunnerTask,
-    QgsProcessingContext,
-    QgsProcessingFeedback,
     QgsProject,
     QgsRasterLayer,
     QgsReferencedRectangle,
@@ -74,6 +71,7 @@ from .core.presets import (
     TERRAIN_PALETTES,
 )
 from .core.web_3d_viewer import generate_3d_web_viewer
+from .ui.task_controller import ProcessingTaskController
 
 
 class TerrainStudioDock(QDockWidget):
@@ -82,9 +80,7 @@ class TerrainStudioDock(QDockWidget):
     def __init__(self, iface, parent=None):
         super().__init__("Terrain Product Studio", parent)
         self.iface = iface
-        self.task = None
-        self.context = None
-        self.feedback = None
+        self.task_controller = ProcessingTaskController()
         self._last_results = None
         self._run_config = None
         self._run_parameters = None
@@ -1242,7 +1238,7 @@ class TerrainStudioDock(QDockWidget):
         }
 
     def run(self):
-        if self.task is not None:
+        if self.task_controller.active:
             return
         layer = self.dem_combo.currentLayer()
         if layer is None or not layer.isValid():
@@ -1277,35 +1273,37 @@ class TerrainStudioDock(QDockWidget):
 
         os.makedirs(output, exist_ok=True)
         QgsSettings().setValue(self.SETTINGS_OUTPUT, output)
-        self.context = QgsProcessingContext()
-        self.context.setProject(QgsProject.instance())
-        self.feedback = QgsProcessingFeedback()
-        self.feedback.progressChanged.connect(lambda value: self.progress.setValue(int(value)))
         run_parameters = self._parameters()
-        self.task = QgsProcessingAlgRunnerTask(
-            algorithm,
-            run_parameters,
-            self.context,
-            self.feedback,
-        )
         self._run_config = self._cartography_config()
         self._run_parameters = run_parameters
-        self.task.executed.connect(self._task_finished)
         self.run_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.progress.setValue(0)
         self.report_edit.appendPlainText(f"\n{self.tr('Generating terrain package…')}")
-        QgsApplication.taskManager().addTask(self.task)
+        try:
+            self.task_controller.start(
+                algorithm,
+                run_parameters,
+                progress_callback=lambda value: self.progress.setValue(int(value)),
+                finished_callback=self._task_finished,
+            )
+        except Exception as error:
+            self.run_button.setEnabled(True)
+            self.cancel_button.setEnabled(False)
+            self.progress.setValue(0)
+            self.report_edit.appendPlainText(
+                f"\n{self.tr('Could not start Processing task')}: {error}"
+            )
+            QMessageBox.critical(
+                self,
+                self.tr("Could not start task"),
+                str(error),
+            )
 
     def cancel_task(self):
-        if self.task is not None:
-            self.task.cancel()
-        if self.feedback is not None:
-            self.feedback.cancel()
+        self.task_controller.cancel()
 
     def _task_finished(self, successful, results):
-        self.task = None
-
         if not successful:
             self.run_button.setEnabled(True)
             self.cancel_button.setEnabled(False)

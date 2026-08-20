@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.0 — 2026-08-20
+
+Maintainability release: smaller object-oriented services with the same v2.2 Processing and output contract.
+
+- Extracted DEM reprojection and optional ROI clipping into `DemPreprocessor`, with a typed `PreparedDem` hand-off shared by every downstream product.
+- Extracted TWI, landslide/RUSLE, SPI, STI and multi-hazard orchestration into `FlowProductBuilder`; flow-grid requirements are now validated in one place and analytical calculators can be injected for focused tests.
+- Extracted QGIS task/context/feedback ownership from the dock into `ProcessingTaskController`, centralizing overlap prevention, progress delivery, cancellation and cleanup.
+- Reduced the main package algorithm by roughly 300 lines while retaining parameter names, output keys, the v2.2 dependency plan and report provenance.
+- Added pure unit coverage for flow-product dependency reuse and missing-accumulation failures.
+
 ## 2.2.0 — 2026-08-20
 
 Pipeline correctness release: one preprocessed DEM, explicit dependencies and real drainage for every flow-driven product.

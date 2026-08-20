@@ -7,13 +7,10 @@ import math
 import os
 from datetime import datetime, timezone
 
-from osgeo import gdal
-
 from qgis import processing
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
     QgsApplication,
-    QgsCoordinateReferenceSystem,
     QgsProcessingAlgorithm,
     QgsProcessingException,
     QgsProcessingMultiStepFeedback,
@@ -35,7 +32,9 @@ from qgis.core import (
 from ..core.dem_info import inspect_dem_layer
 from ..core.intelligence_report import generate_intelligence_report
 from ..core.math_utils import sanitize_prefix, unique_path
+from ..core.flow_products import FlowProductBuilder, FlowProductError
 from ..core.pipeline import plan_pipeline
+from ..core.preprocessing import DemPreprocessor
 from ..core.presets import (
     DEFAULT_PALETTE,
     PALETTE_ORDER,
@@ -49,12 +48,7 @@ from ..core.smoothing import smooth_geometries
 from ..core.spot_elevations import extract_spot_elevations
 from ..core.geomorphon import classify_geomorphon
 from ..core.thematic_terrain import (
-    calculate_landslide_hazard,
-    calculate_multihazard,
     calculate_slope_suitability,
-    calculate_spi,
-    calculate_sti,
-    calculate_twi,
 )
 from ..core.bundle import create_bundle
 from ..core.web_3d_viewer import generate_3d_web_viewer
@@ -82,6 +76,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     BAND = "BAND"
     OUTPUT_FOLDER = "OUTPUT_FOLDER"
     PREFIX = "PREFIX"
+    EXTENT = "EXTENT"
     Z_UNIT = "Z_UNIT"
     AUTO_REPROJECT = "AUTO_REPROJECT"
     PALETTE = "PALETTE"
@@ -212,7 +207,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         )
         self.addParameter(
             QgsProcessingParameterExtent(
-                "EXTENT",
+                self.EXTENT,
                 self.tr("Processing extent (clip boundary, optional)"),
                 optional=True,
             )
@@ -733,124 +728,42 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
 
         source_info = inspect_dem_layer(source, band, sum(selected.values()))
         warnings.extend(source_info["warnings"])
-        working_dem = source
-        working_crs = source.crs()
-        applied_clip_extent = None
+        def advance(message):
+            nonlocal current_step
+            multi.setCurrentStep(current_step)
+            current_step += 1
+            multi.pushInfo(message)
 
-        if source.crs().isGeographic():
-            if not auto_reproject:
-                raise QgsProcessingException(
-                    self.tr(
-                        "The DEM uses angular coordinates. Enable automatic reprojection or "
-                        "reproject it to a suitable metric CRS before running terrain analysis."
-                    )
-                )
-            target_authid = source_info["suggested_working_crs"]
-            target_crs = QgsCoordinateReferenceSystem(target_authid)
-            if not target_crs.isValid():
-                raise QgsProcessingException(self.tr("Could not determine a valid working CRS."))
-            multi.setCurrentStep(current_step)
-            current_step += 1
-            multi.pushInfo(self.tr(f"Reprojecting DEM to {target_authid} using bilinear resampling…"))
-            projected_path = self._output_path(folder, prefix, "working_dem", "tif")
-            warp = self._run_child(
-                "gdal:warpreproject",
-                {
-                    "INPUT": source,
-                    "SOURCE_CRS": source.crs(),
-                    "TARGET_CRS": target_crs,
-                    "RESAMPLING": 1,
-                    "NODATA": None,
-                    "TARGET_RESOLUTION": None,
-                    "MULTITHREADING": True,
-                    "CREATION_OPTIONS": creation_options,
-                    "OPTIONS": creation_options,
-                    "EXTRA": "",
-                    "DATA_TYPE": 0,
-                    "OUTPUT": projected_path,
-                },
-                context,
-                multi,
-            )
-            working_dem = warp["OUTPUT"]
-            working_crs = target_crs
-            outputs[self.WORKING_DEM] = working_dem
-        else:
-            multi.setCurrentStep(current_step)
-            current_step += 1
-            multi.pushInfo(self.tr("Input DEM already has a projected CRS; no working copy was required."))
+        preprocessor = DemPreprocessor(
+            run_child=lambda algorithm_id, child_parameters: self._run_child(
+                algorithm_id, child_parameters, context, multi
+            ),
+            output_path=lambda suffix, extension: self._output_path(
+                folder, prefix, suffix, extension
+            ),
+            extent_resolver=lambda crs: self.parameterAsExtent(
+                parameters, self.EXTENT, context, crs
+            ),
+            advance=advance,
+            feedback=multi,
+            creation_options=creation_options,
+            prefix=prefix,
+            translate=self.tr,
+        )
+        prepared_dem = preprocessor.prepare(
+            source,
+            auto_reproject=auto_reproject,
+            source_info=source_info,
+        )
+        outputs.update(prepared_dem.output_paths)
+        warnings.extend(prepared_dem.warnings)
+        working_dem = prepared_dem.processing_input
+        working_layer = prepared_dem.layer
+        working_crs = prepared_dem.crs
+        applied_clip_extent = prepared_dem.applied_clip_extent
 
         if multi.isCanceled():
             return outputs
-
-        # Optional user boundary extent clipping
-        extent_param = self.parameterAsExtent(parameters, "EXTENT", context, working_crs)
-        if extent_param is not None and not extent_param.isNull() and not extent_param.isEmpty():
-            current_layer = QgsRasterLayer(working_dem, "tmp") if isinstance(working_dem, str) else source
-            if current_layer.isValid():
-                dem_rect = current_layer.extent()
-                clipped_rect = extent_param.intersect(dem_rect)
-                if not clipped_rect.isNull() and not clipped_rect.isEmpty() and clipped_rect.width() > 0 and clipped_rect.height() > 0:
-                    clipped_path = self._output_path(folder, prefix, "clipped_roi", "tif")
-                    multi.pushInfo(self.tr(f"Clipping DEM to ROI extent ({clipped_rect.xMinimum():.1f}, {clipped_rect.yMinimum():.1f}) → ({clipped_rect.xMaximum():.1f}, {clipped_rect.yMaximum():.1f})…"))
-                    
-                    input_dem_file = working_dem if isinstance(working_dem, str) else source.source().split("|")[0]
-                    proj_win = [clipped_rect.xMinimum(), clipped_rect.yMaximum(), clipped_rect.xMaximum(), clipped_rect.yMinimum()]
-                    
-                    try:
-                        translate_options = gdal.TranslateOptions(
-                            projWin=proj_win,
-                            creationOptions=creation_options.split("|"),
-                        )
-                        ds_clipped = gdal.Translate(clipped_path, input_dem_file, options=translate_options)
-                        if ds_clipped is not None:
-                            ds_clipped = None
-                            if os.path.exists(clipped_path):
-                                working_dem = clipped_path
-                                outputs[self.WORKING_DEM] = working_dem
-                                applied_clip_extent = [
-                                    clipped_rect.xMinimum(),
-                                    clipped_rect.yMinimum(),
-                                    clipped_rect.xMaximum(),
-                                    clipped_rect.yMaximum(),
-                                ]
-                                multi.pushInfo(self.tr("Successfully clipped DEM to selected ROI extent."))
-                    except Exception as e:
-                        warnings.append(f"GDAL Translate ROI clip notice: {e}")
-                    
-                    # Fallback if translate did not output
-                    if working_dem != clipped_path:
-                        try:
-                            self._run_child(
-                                "gdal:cliprasterbyextent",
-                                {
-                                    "INPUT": working_dem,
-                                    "PROJWIN": clipped_rect,
-                                    "NODATA": None,
-                                    "OPTIONS": creation_options,
-                                    "DATA_TYPE": 0,
-                                    "OUTPUT": clipped_path,
-                                },
-                                context=context,
-                                feedback=multi,
-                            )
-                            if os.path.exists(clipped_path):
-                                working_dem = clipped_path
-                                outputs[self.WORKING_DEM] = working_dem
-                                applied_clip_extent = [
-                                    clipped_rect.xMinimum(),
-                                    clipped_rect.yMinimum(),
-                                    clipped_rect.xMaximum(),
-                                    clipped_rect.yMaximum(),
-                                ]
-                        except Exception as e:
-                            warnings.append(f"ROI Extent clip notice: {e}")
-
-        working_layer = source
-        if isinstance(working_dem, str):
-            working_layer = QgsRasterLayer(working_dem, f"{prefix}_working_dem")
-            if not working_layer.isValid():
-                raise QgsProcessingException(self.tr("The working DEM could not be opened."))
 
         if accumulation_input and not pipeline_plan.run_hydrology:
             accumulation_grid = QgsRasterLayer(
@@ -1122,51 +1035,48 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 except Exception as err:
                     warnings.append(f"Suitability notice: {err}")
 
-        # When an external accumulation raster is supplied, TWI is resolved
-        # here. Hydrology-generated TWI is already present in ``outputs``.
-        if pipeline_plan.create_twi and not outputs.get(self.TWI):
-            if not accumulation_input or not outputs.get(self.SLOPE):
-                raise QgsProcessingException(
-                    self.tr("TWI requires real flow accumulation and slope rasters.")
+        flow_builder = FlowProductBuilder(
+            output_path=lambda suffix, extension: self._output_path(
+                folder, prefix, suffix, extension
+            ),
+            advance=advance,
+            feedback=multi,
+            translate=self.tr,
+        )
+        try:
+            warnings.extend(
+                flow_builder.build(
+                    outputs,
+                    selected,
+                    create_twi=pipeline_plan.create_twi,
+                    accumulation_path=accumulation_input,
+                    multihazard_weights=(
+                        float(
+                            self.parameterAsDouble(
+                                parameters,
+                                self.MULTIHAZARD_WEIGHT_LANDSLIDE,
+                                context,
+                            )
+                        ),
+                        float(
+                            self.parameterAsDouble(
+                                parameters,
+                                self.MULTIHAZARD_WEIGHT_TWI,
+                                context,
+                            )
+                        ),
+                        float(
+                            self.parameterAsDouble(
+                                parameters,
+                                self.MULTIHAZARD_WEIGHT_SLOPE,
+                                context,
+                            )
+                        ),
+                    ),
                 )
-            if not multi.isCanceled():
-                multi.setCurrentStep(current_step)
-                current_step += 1
-                twi_path = self._output_path(folder, prefix, "twi", "tif")
-                multi.pushInfo(self.tr("Calculating Topographic Wetness Index…"))
-                try:
-                    calculate_twi(accumulation_input, outputs[self.SLOPE], twi_path)
-                    if not os.path.exists(twi_path):
-                        raise RuntimeError("TWI output was not created.")
-                    outputs[self.TWI] = twi_path
-                except Exception as err:
-                    raise QgsProcessingException(str(err)) from err
-
-        # Landslide Hazard & RUSLE LS Factor
-        if selected[self.LANDSLIDE_HAZARD] and outputs.get(self.SLOPE):
-            if not multi.isCanceled():
-                multi.setCurrentStep(current_step)
-                current_step += 1
-                hazard_path = self._output_path(folder, prefix, "landslide_hazard", "tif")
-                ls_path = self._output_path(folder, prefix, "rusle_ls_factor", "tif")
-                multi.pushInfo(self.tr("Calculating landslide hazard and RUSLE LS factor…"))
-                try:
-                    if not accumulation_input:
-                        raise RuntimeError(
-                            "Landslide hazard requires a real flow accumulation raster."
-                        )
-                    calculate_landslide_hazard(
-                        outputs[self.SLOPE],
-                        accumulation_input,
-                        hazard_path,
-                        ls_path,
-                    )
-                    if os.path.exists(hazard_path):
-                        outputs[self.LANDSLIDE_HAZARD] = hazard_path
-                    if os.path.exists(ls_path):
-                        outputs[self.LS_FACTOR] = ls_path
-                except Exception as err:
-                    warnings.append(f"Landslide hazard notice: {err}")
+            )
+        except FlowProductError as error:
+            raise QgsProcessingException(str(error)) from error
 
         working_dem_path = working_dem if isinstance(working_dem, str) else source.source().split("|")[0]
 
@@ -1197,120 +1107,6 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                         multi.pushInfo(self.tr(f"Geomorphon dominant forms: {dominant}"))
                 except Exception as err:
                     warnings.append(f"Geomorphon notice: {err}")
-
-        # Stream Power Index (SPI) & Sediment Transport Index (STI)
-        accumulation_source = accumulation_input
-        for output_key, calculator, suffix, label in (
-            (self.SPI, calculate_spi, "stream_power_index", "SPI"),
-            (self.STI, calculate_sti, "sediment_transport_index", "STI"),
-        ):
-            if selected[output_key]:
-                if not accumulation_source:
-                    raise QgsProcessingException(
-                        self.tr(f"{label} requires a real flow accumulation raster.")
-                    )
-                if not multi.isCanceled():
-                    multi.setCurrentStep(current_step)
-                    current_step += 1
-                    index_path = self._output_path(folder, prefix, suffix, "tif")
-                    multi.pushInfo(self.tr(f"Calculating {label}…"))
-                    try:
-                        calculator(accumulation_source, outputs[self.SLOPE], index_path)
-                        if os.path.exists(index_path):
-                            outputs[output_key] = index_path
-                    except Exception as err:
-                        warnings.append(f"{label} notice: {err}")
-
-        # Multi-hazard Composite Index (0.5×landslide + 0.3×TWI + 0.2×slope)
-        if selected[self.MULTIHAZARD]:
-            if not multi.isCanceled():
-                multi.setCurrentStep(current_step)
-                current_step += 1
-                multi_hazard_path = self._output_path(folder, prefix, "multi_hazard", "tif")
-                multi.pushInfo(self.tr("Combining landslide, TWI and slope into a multi-hazard index…"))
-                try:
-                    slope_path = outputs.get(self.SLOPE)
-                    if not slope_path:
-                        slope_destination = self._output_path(folder, prefix, "slope_deg", "tif")
-                        slope_result = self._run_child(
-                            "gdal:slope",
-                            {
-                                "INPUT": working_dem,
-                                "BAND": band,
-                                "SCALE": scale,
-                                "AS_PERCENT": False,
-                                "COMPUTE_EDGES": True,
-                                "ZEVENBERGEN": zevenbergen,
-                                "OUTPUT": slope_destination,
-                                "CREATION_OPTIONS": creation_options,
-                                "OPTIONS": creation_options,
-                                "EXTRA": "",
-                            },
-                            context,
-                            multi,
-                        )
-                        slope_path = slope_result["OUTPUT"]
-                        outputs[self.SLOPE] = slope_path
-
-                    landslide_path = outputs.get(self.LANDSLIDE_HAZARD)
-                    if not landslide_path:
-                        landslide_path = self._output_path(folder, prefix, "landslide_hazard", "tif")
-                        ls_path = self._output_path(folder, prefix, "rusle_ls_factor", "tif")
-                        if not accumulation_input:
-                            raise RuntimeError(
-                                "Multi-hazard requires a real flow accumulation raster."
-                            )
-                        calculate_landslide_hazard(
-                            slope_path, accumulation_input, landslide_path, ls_path
-                        )
-                        outputs[self.LANDSLIDE_HAZARD] = landslide_path
-                        outputs[self.LS_FACTOR] = ls_path
-
-                    twi_path = outputs.get(self.TWI)
-                    if not twi_path and accumulation_input:
-                        twi_path = self._output_path(folder, prefix, "twi", "tif")
-                        calculate_twi(accumulation_input, slope_path, twi_path)
-                        if os.path.exists(twi_path):
-                            outputs[self.TWI] = twi_path
-
-                    if not twi_path:
-                        raise RuntimeError(
-                            "Multi-hazard dependency error: TWI was not created."
-                        )
-                    weights = (
-                        float(
-                            self.parameterAsDouble(
-                                parameters, self.MULTIHAZARD_WEIGHT_LANDSLIDE, context
-                            )
-                        ),
-                        float(
-                            self.parameterAsDouble(
-                                parameters, self.MULTIHAZARD_WEIGHT_TWI, context
-                            )
-                        ),
-                        float(
-                            self.parameterAsDouble(
-                                parameters, self.MULTIHAZARD_WEIGHT_SLOPE, context
-                            )
-                        ),
-                    )
-                    stats = calculate_multihazard(
-                        landslide_path,
-                        twi_path,
-                        slope_path,
-                        multi_hazard_path,
-                        weights=weights,
-                    )
-                    if os.path.exists(multi_hazard_path):
-                        outputs[self.MULTIHAZARD] = multi_hazard_path
-                        multi.pushInfo(
-                            self.tr(
-                                "Multi-hazard: {low}% low, {moderate}% moderate, "
-                                "{high}% high".format(**stats)
-                            )
-                        )
-                except Exception as err:
-                    warnings.append(f"Multi-hazard notice: {err}")
 
         # 3D Interactive Web Viewer
         if selected[self.VIEWER_3D]:
