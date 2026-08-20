@@ -35,7 +35,8 @@
 - **Pipeline một chạm đúng dependency**: DEM chỉ preprocess một lần; hydrology chạy trước SPI/STI/sạt lở/đa hiểm họa; slope và TWI được tự bật có khai báo. Không dùng accumulation cache hoặc slope làm drainage proxy.
 - **Chỉ số đa hiểm họa & Gói GeoPackage**: Chỉ số tổng hợp có trọng số (sạt lở × độ dốc × TWI) và gộp **toàn bộ sản phẩm raster + vector vào một file `.gpkg` duy nhất** để chia sẻ (raster byte nén PNG không mất dữ liệu, raster float theo chuẩn OGC 2D-gridded-coverage).
 - **In 3D & Tự động hóa quy trình**: Xuất mesh STL/OBJ (tự giảm độ phân giải, phóng đại độ cao, đế đặc kín nước), preset theo ngành (Đô thị / Nông nghiệp / Thiên tai / Khai khoáng) một chạm, nhật ký lịch sử 20 lần chạy gần nhất, và **xuất project QGIS (.qgz)** — lưu toàn bộ lớp, style, nhóm lớp và layout vào thư mục đầu ra.
-- **3D WebGIS Studio độc lập (`.html`)**: Trực quan hóa địa hình 3D mượt mà trên trình duyệt, tích hợp mô phỏng ngập lụt, cắt mặt cắt A $\rightarrow$ B trực tiếp, đổ bóng mặt trời theo giờ thực và trợ lý AI trả lời câu hỏi địa hình.
+- **Map Design Studio**: chọn độc lập mẫu layout, style bản đồ và bảng màu độ cao; các vùng an toàn giúp title, legend, mũi tên Bắc, thước tỷ lệ và nguồn dữ liệu không đè lên nhau.
+- **3D WebGIS Studio (`.html`)**: Chọn chất lượng 256/384/512, đúng tỷ lệ địa lý/tọa độ và có thể chọn GeoTIFF/COG hoặc GeoJSON để đọc trực tiếp trong trình duyệt.
 - **Báo cáo Topographic Intelligence Report (`.html`)**: Dashboard tổng hợp với biểu đồ hoa hướng dốc (Aspect Rose), biểu đồ tần suất cao độ và ma trận đánh giá đất xây dựng theo TCVN.
 - **Tương thích kép QGIS 3 (Qt5) & QGIS 4 (Qt6)**: Đã xử lý toàn bộ scoped enums và tương thích hoàn toàn trên môi trường macOS, Windows, Linux.
 
@@ -150,13 +151,13 @@ Xuất ra file HTML tổng hợp (`<prefix>_topographic_intelligence_report.html
 ## 🚀 Hướng Dẫn Cài Đặt
 
 ### Cách 1: Cài đặt qua file ZIP (Khuyến nghị)
-1. Tải file `terrain_product_studio-2.4.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Tải file `terrain_product_studio-2.7.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Trong QGIS, vào menu **Plugins (Tiện ích)** $\rightarrow$ **Manage and Install Plugins... (Quản lý và Cài đặt Tiện ích...)**.
 3. Chọn tab **Install from ZIP (Cài đặt từ ZIP)** $\rightarrow$ Chọn file `.zip` vừa tải $\rightarrow$ Nhấn **Install Plugin**.
 
 > **Không cài** file từ nút **Code → Download ZIP** của GitHub. File đó bọc cả repository nên QGIS không tìm thấy `metadata.txt` đúng vị trí. Hãy dùng file ZIP có phiên bản trong mục **Releases**.
 
-> **v2.4.0**: bản mở rộng cuối roadmap — tham số Processing, danh sách sản phẩm trong dock và dependency planner dùng chung một product registry có validation. Có thể khai báo dependency sản phẩm/flow/TWI mà không thêm các nhánh planner rời rạc.
+> **v2.7.0**: Có 6 preset nhẹ kèm ảnh xem trước, mỗi preset gộp layout, style lớp QGIS, bảng màu DEM số và kiểu lưới. Mặc định khuyến nghị vẫn đơn giản, phần nâng cao được thu gọn. Layout xuất ra khóa lại vùng an toàn sau khi QGIS fit extent nên không còn đè các thành phần lên nhau.
 
 ### Cách 2: Sao chép thủ công vào thư mục Plugins của QGIS
 Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng với hệ điều hành:
@@ -176,8 +177,8 @@ Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng
    - Tab **Products**: Chọn **preset theo ngành** (Đô thị / Nông nghiệp / Thiên tai / Khai khoáng) hoặc tự tick sản phẩm; cài làm trơn và trọng số chỉ số đa hiểm họa; tick **Create QGIS project (.qgz)** để lưu project đã style vào thư mục đầu ra.
    - Tab **Contours**: Tinh chỉnh khoảng cao đều, bội số đường đồng mức cái và **ngưỡng điểm đỉnh (% biên độ cao độ)** — chỉ giữ đỉnh thuộc top N% dải cao độ (0 = Tắt).
    - Tab **Hydrology**: Bật trích xuất thủy văn và ngưỡng diện tích tụ thủy sinh dòng ($ha$).
-   - Tab **Layout**: Cấu hình tự động tạo bản in trang in chuẩn xuất bản và xuất file PDF/PNG. Layout được tạo và lưu vào project nhưng **không còn tự mở** — mở từ trình quản lý Layouts khi cần.
-   - Tab **Settings**: Phóng đại độ cao và độ dày đế cho **xuất STL/OBJ in 3D**.
+   - Tab **Layout**: Chọn riêng mẫu layout và style bản đồ, kiểm tra độ sẵn sàng, thêm thiết kế vào hàng đợi map book và xuất nhiều PDF/PNG. Bảng màu độ cao chọn riêng trong **Settings**.
+   - Tab **Settings**: Chọn chất lượng Web 3D, phóng đại độ cao và độ dày đế cho **xuất STL/OBJ in 3D**.
    - Tab **Inspect**: Mở lại thư mục kết quả / báo cáo của bất kỳ lần chạy nào trong 20 lần gần nhất.
 6. Nhấn **Build Product Package** để bắt đầu xử lý.
 7. Khi hoàn thành, các lớp dữ liệu sẽ tự động nạp vào QGIS. Bạn có thể nhấn ngay nút **🌐 View 3D Web Map** hoặc **📊 View Report** để khám phá sản phẩm 3D và báo cáo trên trình duyệt.

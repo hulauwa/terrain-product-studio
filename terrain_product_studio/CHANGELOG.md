@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.7.0 — 2026-08-20
+
+- Added a compact one-click design library with six curated combinations of layout template, QGIS layer styles, numeric DEM palette and coordinate-grid mode. Standard Topographic remains the simple recommended default and advanced overrides stay collapsed.
+- Added lightweight built-in JPEG previews rendered from a central crop of the Lai Chau DEM; all six thumbnails total under 100 KB and the source DEM is never packaged.
+- Added selectable map-CRS, WGS 84 (EPSG:4326), dual projected/WGS 84 and custom-EPSG grids. Dual grids reserve projected labels for left/bottom and geographic labels for right/top.
+- Fixed real exported layouts still overlapping after collision planning: QGIS can resize a map item when fitting its extent, so the planned safe-zone position and dimensions are now reasserted after the extent is applied.
+- Ensured every curated design, including Engineering Blueprint, explicitly keeps the numeric DEM and hillshade in its layer recipe; palettes remain QGIS renderer snapshots and do not require an RGB raster export.
+- Renamed and documented the optional portable DEM copy so it is clear that it is a numeric GeoTIFF for sharing, not a color image.
+
+## 2.6.0 — 2026-08-20
+
+- Removed the A/B style comparison controls and restored a simpler map-design workflow.
+- Layout template, map style and elevation color palette are now three independent choices; changing a palette no longer silently changes the map style or sheet composition.
+- Added a pure collision-free geometry planner for all seven templates across A4/A3/A1 portrait and landscape pages. Map, grid marginalia, legend, north arrow, scale bar, metadata, title and source footer use reserved safe zones.
+- Reworked typography around the official US Topo marginal hierarchy: compact 5–12 pt supporting text, 12–13 pt titles, horizontal grid labels outside the map frame and an Arial default for the classic topographic sheet.
+- Added map-readiness warnings for overly long titles, unavailable templates and low-contrast dark-palette/light-style combinations.
+
+## 2.5.2 — 2026-08-20
+
+- Fixed the portable canonical DEM path failing with `NameError: gdal is not defined`.
+- Moved portable GeoTIFF creation into the object-oriented DEM preprocessing service and added a real GDAL copy regression test.
+
+## 2.5.1 — 2026-08-20
+
+- Fixed the QGIS 4 / Qt 6 font crash in the Layout tab and at run time by resolving installed fonts through a centralized QGIS 3/4 compatibility helper.
+- Reworked the dock for small screens: each long option page scrolls independently, while Quick Basemap, progress, Build/Cancel and result actions remain pinned at the bottom.
+- The clean starter recipe now enables the canonical styled DEM, multidirectional hillshade, spot elevations and contours with Medium smoothing; raw contours remain available but hidden when the smooth cartographic copy exists.
+
+## 2.5.0 — 2026-08-20
+
+Map Design Studio release: one numeric DEM can now drive multiple independent layout designs without duplicated RGB rasters.
+
+- Added cohesive Style Packs combining layout composition, QGIS layer styles, palette, typography, layer recipe and Web 3D colors; seven genuinely different sheet compositions replace the single shared layout skeleton.
+- Added per-layout style snapshots generated from temporary layer clones. Multiple layouts can use the same QGIS layers with independent DEM, contour, stream, peak, ridge, hillshade and font styling.
+- Added a drag-reorder map-book queue with Add, Duplicate, Remove and Generate All actions; PDF/PNG names include the layout name and every selected Style Pack is exported as reusable QML.
+- The canonical `WORKING_DEM` is always exposed and styled as a single-band pseudocolor basemap. The physical RGB color-relief output is now an optional compatibility copy instead of the default basemap.
+- Fixed font selection with installed-family resolution and visible fallback reporting; legend component enums now work across QGIS 3 and QGIS 4.
+- Added map-readiness QA, an explainable layer-recipe inspector and a transparent share manifest recording files, styles, layouts and browser constraints.
+- Raised the portable Web 3D preview from 240 to selectable 256/384/512 samples; fixed geographic aspect, surface coordinates and orthographic resize; added direct user-selected GeoTIFF/COG and GeoJSON loading.
+- Improved throughput with `NUM_THREADS=ALL_CPUS` for tiled GeoTIFF creation and concurrent independent raster reads during Web 3D preparation. QGIS child Processing operations remain serialized for context safety.
+
 ## 2.4.0 — 2026-08-20
 
 Extensibility and final roadmap release: one validated product catalog shared by the UI, Processing contract and dependency planner.

@@ -82,6 +82,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     AUTO_REPROJECT = "AUTO_REPROJECT"
     PALETTE = "PALETTE"
     COMPRESSION = "COMPRESSION"
+    WEB_3D_QUALITY = "WEB_3D_QUALITY"
+    PORTABLE_DEM_COPY = "PORTABLE_DEM_COPY"
     VERTICAL_EXAGGERATION = "VERTICAL_EXAGGERATION"
     AZIMUTH = "AZIMUTH"
     ALTITUDE = "ALTITUDE"
@@ -244,6 +246,25 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=0,
             )
         )
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.WEB_3D_QUALITY,
+                self.tr("Web 3D display quality"),
+                options=[
+                    self.tr("Fast · 256 samples"),
+                    self.tr("Balanced · 384 samples"),
+                    self.tr("High · 512 samples"),
+                ],
+                defaultValue=1,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.PORTABLE_DEM_COPY,
+                self.tr("Include a portable numeric DEM copy for sharing"),
+                defaultValue=False,
+            )
+        )
 
         self.addParameter(
             QgsProcessingParameterNumber(
@@ -284,9 +305,9 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             )
         )
 
-        # Default setup ticks only the basemap products (color relief,
-        # multidirectional hillshade, contours, spot peaks); everything else
-        # is opt-in.
+        # The numeric working DEM is always exposed and styled.  Default
+        # products add multidirectional hillshade and spot peaks; the rendered
+        # RGB color-relief copy is now opt-in for interoperability.
         for product in DEFAULT_PRODUCT_REGISTRY.specs(section="terrain"):
             self.addParameter(
                 QgsProcessingParameterBoolean(
@@ -448,7 +469,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 self.SMOOTHING,
                 self.tr("Contour smoothness (cartographic copy)"),
                 options=[self.tr("Off"), self.tr("Light"), self.tr("Medium"), self.tr("Heavy")],
-                defaultValue=0,
+                defaultValue=2,
             )
         )
         self.addParameter(
@@ -532,7 +553,9 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
 
     @staticmethod
     def _creation_options(compression):
-        options = ["TILED=YES", "BIGTIFF=IF_SAFER"]
+        # GTiff compression and overview-friendly tiling can use multiple CPU
+        # cores without sharing a QGIS Processing context across threads.
+        options = ["TILED=YES", "BIGTIFF=IF_SAFER", "NUM_THREADS=ALL_CPUS"]
         if compression != "NONE":
             options.insert(0, f"COMPRESS={compression}")
         return "|".join(options)
@@ -596,6 +619,12 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         auto_reproject = self.parameterAsBool(parameters, self.AUTO_REPROJECT, context)
         palette_index = self.parameterAsEnum(parameters, self.PALETTE, context)
         compression_index = self.parameterAsEnum(parameters, self.COMPRESSION, context)
+        web_3d_quality = self.parameterAsEnum(
+            parameters, self.WEB_3D_QUALITY, context
+        )
+        portable_dem_copy = self.parameterAsBool(
+            parameters, self.PORTABLE_DEM_COPY, context
+        )
         vertical_exaggeration = self.parameterAsDouble(
             parameters, self.VERTICAL_EXAGGERATION, context
         )
@@ -676,6 +705,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             + 4
             + int(pipeline_plan.run_hydrology)
             + int(pipeline_plan.create_twi and not pipeline_plan.run_hydrology)
+            + int(portable_dem_copy)
         )
         multi = QgsProcessingMultiStepFeedback(step_count, feedback)
         current_step = 0
@@ -728,6 +758,30 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         working_layer = prepared_dem.layer
         working_crs = prepared_dem.crs
         applied_clip_extent = prepared_dem.applied_clip_extent
+        # Always expose one canonical numeric DEM.  For an unchanged projected
+        # input this deliberately references the source instead of duplicating
+        # a potentially large raster in the output directory.
+        canonical_dem_path = (
+            working_dem
+            if isinstance(working_dem, str)
+            else source.source().split("|")[0]
+        )
+        if portable_dem_copy:
+            try:
+                already_portable = os.path.commonpath(
+                    [os.path.abspath(canonical_dem_path), os.path.abspath(folder)]
+                ) == os.path.abspath(folder)
+            except ValueError:
+                already_portable = False
+            if not already_portable:
+                advance(self.tr("Copying one canonical DEM for portable sharing…"))
+                portable_path = self._output_path(
+                    folder, prefix, "canonical_dem", "tif"
+                )
+                canonical_dem_path = preprocessor.create_portable_copy(
+                    canonical_dem_path, portable_path, band
+                )
+        outputs[self.WORKING_DEM] = canonical_dem_path
 
         if multi.isCanceled():
             return outputs
@@ -1096,6 +1150,10 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                         suitability_path=outputs.get(self.SUITABILITY),
                         hazard_path=outputs.get(self.LANDSLIDE_HAZARD),
                         band_number=band,
+                        palette_key=palette_key,
+                        grid_size=(256, 384, 512)[
+                            min(max(0, web_3d_quality), 2)
+                        ],
                     )
                     if os.path.exists(v3d_path):
                         outputs[self.VIEWER_3D] = v3d_path

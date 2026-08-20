@@ -33,9 +33,9 @@ print(f"dock construction: {elapsed:.0f} ms")
 
 failures = []
 
-scroll = dock.widget()
+scroll = dock.setup_scroll
 if not isinstance(scroll, QScrollArea):
-    failures.append("dock.widget() is not a QScrollArea")
+    failures.append("dock.setup_scroll is not a QScrollArea")
 if not scroll.widgetResizable():
     failures.append("scroll area not widget-resizable")
 
@@ -46,19 +46,18 @@ for height in (680, 520, 460):
     app.processEvents()
     viewport_height = scroll.viewport().height()
     content_height = scroll.widget().sizeHint().height()
-    run_bottom = dock.run_button.mapTo(scroll.widget(), dock.run_button.rect().bottomLeft()).y()
-    reachable = run_bottom <= content_height and (
-        content_height <= viewport_height or scroll.verticalScrollBar().maximum() >= run_bottom - viewport_height
-    )
+    run_top = dock.run_button.mapTo(dock, dock.run_button.rect().topLeft()).y()
+    run_bottom = dock.run_button.mapTo(dock, dock.run_button.rect().bottomLeft()).y()
+    reachable = dock.run_button.isVisible() and run_top >= 0 and run_bottom <= dock.height()
     print(
         f"height={height}: viewport={viewport_height} content={content_height} "
-        f"run_button_bottom={run_bottom} max_scroll={scroll.verticalScrollBar().maximum()} "
+        f"run_button={run_top}..{run_bottom} max_scroll={scroll.verticalScrollBar().maximum()} "
         f"reachable={reachable}"
     )
     if not reachable:
         failures.append(f"Run button not reachable at dock height {height}")
-    if run_bottom > content_height:
-        failures.append("Run button bottom exceeds scroll content")
+    if scroll.verticalScrollBar().maximum() <= 0 and content_height > viewport_height:
+        failures.append("Setup controls overflow but the setup scrollbar is disabled")
 
 # M4: industry presets tick the right products
 expected_presets = 5  # Custom + 4 industries
@@ -103,8 +102,28 @@ for height, name in ((680, "dock_full"), (520, "dock_compact")):
     pix.save(out)
     print(f"screenshot: {out} ({pix.width()}x{pix.height()})")
 
+# The Layout tab deliberately keeps the one-click library small and hides the
+# expert controls. Capture it as a regression artifact as well.
+dock.tabs.setCurrentIndex(dock.cartography_tab_index)
+dock.resize(460, 680)
+dock.show()
+dock.setup_scroll.verticalScrollBar().setValue(
+    dock.setup_scroll.verticalScrollBar().maximum()
+)
+app.processEvents()
+if dock.design_preview.pixmap() is None or dock.design_preview.pixmap().isNull():
+    failures.append("default design preview did not load")
+if dock.advanced_design_group.isChecked():
+    failures.append("advanced design controls should be collapsed by default")
+if dock.advanced_design_body.isVisible():
+    failures.append("advanced design body should be hidden by default")
+layout_out = os.path.join(workspace, "dist", "dock_layout_presets.png")
+dock.grab().save(layout_out)
+print(f"screenshot: {layout_out}")
+
 dock.close()
 dock.deleteLater()
+app.processEvents()
 
 if failures:
     print("FAILURES:")
@@ -112,3 +131,4 @@ if failures:
         print(" -", f)
     sys.exit(1)
 print("ALL UI CHECKS PASSED")
+app.exitQgis()

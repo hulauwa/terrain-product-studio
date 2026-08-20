@@ -19,7 +19,13 @@ from qgis.core import (
     QgsVectorLayerSimpleLabeling,
 )
 
-from .presets import ASPECT_CLASSES, CARTOGRAPHY_PRESETS, SLOPE_CLASSES
+from .presets import (
+    ASPECT_CLASSES,
+    CARTOGRAPHY_PRESETS,
+    SLOPE_CLASSES,
+    TERRAIN_PALETTES,
+    resolve_palette_stops,
+)
 from .qgis_compat import all_raster_statistics_flag
 
 
@@ -76,6 +82,25 @@ def apply_hillshade_style(layer, opacity=0.36):
         multiply_mode = getattr(QPainter, "CompositionMode_Multiply")
     layer.setBlendMode(multiply_mode)
     layer.triggerRepaint()
+
+
+def apply_dem_style(layer, preset_key="natural_earth", palette_key=None):
+    """Render the canonical single-band DEM without creating an RGB copy."""
+
+    preset = _cartography_preset(preset_key)
+    palette = TERRAIN_PALETTES.get(
+        palette_key, TERRAIN_PALETTES[preset["palette"]]
+    )
+    minimum, maximum = _stats(layer)
+    if minimum >= maximum:
+        maximum = minimum + 1.0
+    items = [
+        (value, QColor(red, green, blue), f"{value:g}")
+        for value, red, green, blue in resolve_palette_stops(
+            palette, minimum, maximum
+        )
+    ]
+    _pseudocolor(layer, items)
 
 
 def apply_slope_style(layer):
@@ -480,5 +505,3 @@ def apply_multihazard_style(layer):
             (3.0, "#d7191c", "High"),
         ),
     )
-
-

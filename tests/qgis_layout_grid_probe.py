@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from qgis.core import QgsApplication, QgsProject, QgsRasterLayer
 from qgis.PyQt.QtWidgets import QApplication
@@ -33,6 +33,9 @@ dem = 100.0 + 3.0 * y + 2.0 * x
 dem_path = os.path.join(temp_dir, "dem.tif")
 ds = gdal.GetDriverByName("GTiff").Create(dem_path, cols, rows, 1, gdal.GDT_Float32)
 ds.SetGeoTransform((500000.0, 30.0, 0.0, 4600000.0, 0.0, -30.0))
+spatial_reference = osr.SpatialReference()
+spatial_reference.ImportFromEPSG(32610)
+ds.SetProjection(spatial_reference.ExportToWkt())
 ds.GetRasterBand(1).WriteArray(dem.astype(np.float32))
 ds = None
 
@@ -42,6 +45,8 @@ project.addMapLayer(relief)
 
 config = {
     "preset": "natural_earth",
+    "layout_template": "classic_topo",
+    "palette_key": "natural",
     "font_family": "Noto Sans",
     "create_layout": True,
     "layout_name": "Terrain Map",
@@ -106,6 +111,31 @@ if maps:
         check("annotation enabled", grid.annotationEnabled(), str(grid.annotationEnabled()))
         check("annotation position = OutsideMapFrame", position == outside, str(position))
         check("annotation direction = Horizontal", direction == horizontal, str(direction))
+
+dual_config = dict(config)
+dual_config["layout_name"] = "Terrain Map Dual Grid"
+dual_config["grid_mode"] = "dual"
+dual_layout, _ = create_terrain_layout(
+    project,
+    {"COLOR_RELIEF": relief},
+    temp_dir,
+    dual_config,
+    north_arrow_path=os.path.join(
+        os.path.dirname(__file__), "..", "terrain_product_studio", "icons", "north_arrow_classic.svg"
+    ),
+)
+dual_maps = [i for i in dual_layout.items() if isinstance(i, QgsLayoutItemMap)]
+check("dual-grid map item found", len(dual_maps) == 1, str(len(dual_maps)))
+if dual_maps:
+    dual_collection = dual_maps[0].grids()
+    dual_count = dual_collection.size() if hasattr(dual_collection, "size") else len(dual_collection.asList())
+    check("dual grid adds projected plus WGS84 grids", dual_count == 2, str(dual_count))
+    authids = {
+        dual_collection.grid(index).crs().authid()
+        for index in range(dual_count)
+    }
+    check("dual grid contains map CRS", "EPSG:32610" in authids, str(authids))
+    check("dual grid contains WGS84", "EPSG:4326" in authids, str(authids))
 
 print()
 shutil.rmtree(temp_dir, ignore_errors=True)

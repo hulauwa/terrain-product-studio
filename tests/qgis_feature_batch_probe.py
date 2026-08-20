@@ -54,6 +54,8 @@ check("PALETTE default is Natural Earth", options[default_index] == "Natural Ear
 spot_param = next(p for p in algo.parameterDefinitions() if p.name() == "SPOT_PCT")
 check("SPOT_PCT default 80", spot_param.defaultValue() == 80, str(spot_param.defaultValue()))
 check("SPOT_PCT min 0 max 100", spot_param.minimum() == 0 and spot_param.maximum() == 100)
+smoothing_param = next(p for p in algo.parameterDefinitions() if p.name() == "SMOOTHING")
+check("SMOOTHING default is Medium", smoothing_param.defaultValue() == 2, str(smoothing_param.defaultValue()))
 
 # ── 4. Dock semantics (needs QApplication) ────────────────────────────────
 app = QgsApplication([], False)
@@ -73,6 +75,25 @@ dock = TerrainStudioDock(FakeIface())
 dock.show()
 app.processEvents()
 
+check("design default = Standard Topographic", dock.design_preset_combo.currentData() == "standard_topo", str(dock.design_preset_combo.currentData()))
+check("advanced design overrides collapsed", not dock.advanced_design_group.isChecked())
+check("advanced design body hidden", not dock.advanced_design_body.isVisible())
+check("six curated design presets plus Custom", dock.design_preset_combo.count() == 7, str(dock.design_preset_combo.count()))
+arctic_index = dock.design_preset_combo.findData("arctic_survey")
+dock.design_preset_combo.setCurrentIndex(arctic_index)
+app.processEvents()
+check("design preset applies map style", dock.cartography_combo.currentData() == "modern_atlas", str(dock.cartography_combo.currentData()))
+check("design preset applies layout", dock.layout_template_combo.currentData() == "modern_atlas", str(dock.layout_template_combo.currentData()))
+check("design preset applies DEM palette", dock.palette_combo.currentData() == "arctic", str(dock.palette_combo.currentData()))
+check("design preset applies WGS84 grid", dock.grid_mode_combo.currentData() == "wgs84", str(dock.grid_mode_combo.currentData()))
+dock.palette_combo.setCurrentIndex(dock.palette_combo.findData("natural"))
+app.processEvents()
+check("manual override marks design Custom", dock.design_preset_combo.currentData() == "", str(dock.design_preset_combo.currentData()))
+dock.design_preset_combo.setCurrentIndex(
+    dock.design_preset_combo.findData("standard_topo")
+)
+app.processEvents()
+
 check("cartography default = Natural Earth Light", dock.cartography_combo.currentData() == "natural_earth", str(dock.cartography_combo.currentData()))
 check("palette default = natural", dock.palette_combo.currentData() == "natural", str(dock.palette_combo.currentData()))
 check("combo count = 20 + 4 separators", dock.palette_combo.count() == 24, str(dock.palette_combo.count()))
@@ -88,38 +109,46 @@ for alg_index, key in enumerate(PALETTE_ORDER):
 else:
     check("palette combo index maps to PALETTE_ORDER", True)
 
-# dark palette → auto-switch cartography to night_dark
+# Palette, map style and layout template are independent controls.
 dark_combo = dock.palette_combo.findData("terrain_dark")
 dock.palette_combo.setCurrentIndex(dark_combo)
 app.processEvents()
-check("dark palette switches cartography to night_dark", dock.cartography_combo.currentData() == "night_dark", str(dock.cartography_combo.currentData()))
+check("dark palette does not change map style", dock.cartography_combo.currentData() == "natural_earth", str(dock.cartography_combo.currentData()))
 light_combo = dock.palette_combo.findData("natural")
 dock.palette_combo.setCurrentIndex(light_combo)
 app.processEvents()
-check("light palette returns cartography to natural_earth", dock.cartography_combo.currentData() == "natural_earth", str(dock.cartography_combo.currentData()))
+check("palette is always enabled", dock.palette_combo.isEnabled())
 
-# manual cartography choice survives palette change
+# Manual map style and layout choices survive palette changes.
 dock.cartography_combo.setCurrentIndex(dock.cartography_combo.findData("usgs_classic"))
 app.processEvents()
 dark_combo = dock.palette_combo.findData("dark_forest")
 dock.palette_combo.setCurrentIndex(dark_combo)
 app.processEvents()
-check("manual cartography overridden to night_dark on dark palette", dock.cartography_combo.currentData() == "night_dark")
-dock.cartography_combo.setCurrentIndex(dock.cartography_combo.findData("antique_survey"))
-dock.palette_combo.setCurrentIndex(light_combo)
+check("manual map style survives dark palette", dock.cartography_combo.currentData() == "usgs_classic")
+dock.layout_template_combo.setCurrentIndex(
+    dock.layout_template_combo.findData("engineering_titleblock")
+)
+dock.palette_combo.setCurrentIndex(dock.palette_combo.findData("natural"))
 app.processEvents()
-check("light palette does not stomp manual cartography", dock.cartography_combo.currentData() == "antique_survey", str(dock.cartography_combo.currentData()))
+check("layout template survives palette change", dock.layout_template_combo.currentData() == "engineering_titleblock")
+check("A/B comparison removed", not hasattr(dock, "compare_style_combo"))
+dock.layout_template_combo.setCurrentIndex(
+    dock.layout_template_combo.findData("classic_topo")
+)
 
 # defaults
 check("open_layout default unchecked", not dock.open_layout_check.isChecked())
 check("create_project default checked", dock.create_project_check.isChecked())
 check("peak spin default 80", dock.spot_pct_spin.value() == 80, str(dock.spot_pct_spin.value()))
+check("contour smoothing default Medium", dock.smoothing_combo.currentIndex() == 2, str(dock.smoothing_combo.currentIndex()))
 check("hydrology default unchecked", not dock.hydrology_check.isChecked())
 check("twi default unchecked", not dock.twi_check.isChecked())
 check("basins default unchecked", not dock.basins_check.isChecked())
-base_map = {"CREATE_COLOR_RELIEF", "CREATE_MULTI_HILLSHADE", "CREATE_SPOT_ELEVATIONS"}
+base_map = {"CREATE_MULTI_HILLSHADE", "CREATE_SPOT_ELEVATIONS"}
 checked = {key for key, cb in dock.products.items() if cb.isChecked()}
 check("products default = minimal basemap", checked == base_map, str(checked))
+check("layout default = classic topo", dock.layout_template_combo.currentData() == "classic_topo", str(dock.layout_template_combo.currentData()))
 
 # parameters plumbing
 params = dock._parameters()
@@ -128,6 +157,9 @@ check("parameters carry PALETTE index of natural", params.get("PALETTE") == PALE
 config = dock._cartography_config()
 check("config carries create_project", config.get("create_project") is True)
 check("config preset follows cartography combo", config.get("preset") == dock.cartography_combo.currentData(), config.get("preset"))
+check("config carries independent layout template", config.get("layout_template") == dock.layout_template_combo.currentData(), config.get("layout_template"))
+check("config carries grid mode", config.get("grid_mode") == dock.grid_mode_combo.currentData(), config.get("grid_mode"))
+check("config carries design state", config.get("design_preset") in {"standard_topo", "custom"}, config.get("design_preset"))
 dock.cartography_combo.setCurrentIndex(dock.cartography_combo.findData("natural_earth"))
 app.processEvents()
 config = dock._cartography_config()

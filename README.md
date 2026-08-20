@@ -36,7 +36,8 @@
 - **Dependency-Safe One-Click Pipeline**: The DEM is preprocessed once, hydrology runs before SPI/STI/landslide/multi-hazard products, and slope/TWI dependencies are auto-enabled explicitly. No cached accumulation or slope drainage proxy is used.
 - **Multi-Hazard Composite & Shareable Bundle**: Weighted landslide × slope × TWI composite index, exported together with every raster and vector layer into **one GeoPackage** (lossless PNG tiles for byte rasters, OGC 2D-gridded-coverage for float rasters).
 - **3D Printing & Workflow**: STL/OBJ mesh export (auto-downsampling, z exaggeration, watertight base plate), one-click industry presets (Urban / Agriculture / Disaster / Mining), a run-history journal (last 20 jobs reopenable from the Inspect tab), and one-click **QGIS project (.qgz)** export that saves every layer, style, group and print layout into the output folder.
-- **Real-Time 3D WebGIS Studio (`.html`)**: Self-contained WebGL 3D terrain viewer with flood simulation, live profile cross-sections, solar shadow time-lapse, drone flythrough, and AI Q&A assistant.
+- **Map Design Studio**: choose layout template, map style and elevation palette independently; reusable QML and any number of independently styled layouts in a drag-reorder map-book queue. Reserved safe zones prevent map furniture overlap.
+- **Real-Time 3D WebGIS Studio (`.html`)**: quality-selectable WebGL terrain viewer with correct map aspect/coordinates, concurrent raster preparation and direct user-selected GeoTIFF/COG or GeoJSON loading.
 - **Topographic Intelligence Report (`.html`)**: Executive summary dashboard featuring SVG Aspect Rose radar charts, hypsometric histograms, and TCVN geotechnical matrices.
 - **Dual QGIS 3 (Qt5) & QGIS 4 (Qt6) Compatibility**: Fully verified against scoped enum architectures and modern Python 3.12+ environments.
 
@@ -150,13 +151,13 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 ## 🚀 Installation
 
 ### Option A: Install via QGIS Plugin Manager
-1. Download the latest `terrain_product_studio-2.4.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Download the latest `terrain_product_studio-2.7.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Open QGIS $\rightarrow$ **Plugins** $\rightarrow$ **Manage and Install Plugins...**
 3. Select **Install from ZIP** $\rightarrow$ choose the downloaded `.zip` file $\rightarrow$ Click **Install Plugin**.
 
 > Do **not** install GitHub's **Code → Download ZIP** archive. It contains the repository wrapper, not an installable QGIS plugin. Use the versioned ZIP under **Releases**; it contains `terrain_product_studio/metadata.txt` at the required location.
 
-> **v2.4.0**: extensibility release — Processing parameters, dock products and dependency planning now share one validated product registry. New products can declare transitive dependencies and flow/TWI requirements without adding planner conditionals; the v2.3 contract remains unchanged.
+> **v2.7.0**: Six lightweight previewed design presets bundle layout, QGIS layer style, numeric DEM palette and grid choice. The recommended default stays simple; advanced controls remain optional. Exported layouts now re-lock their safe zones after QGIS fits the map extent, preventing furniture overlap.
 
 ### Option B: Manual Installation
 Copy the `terrain_product_studio` directory into your QGIS active profile plugin folder:
@@ -176,8 +177,8 @@ Copy the `terrain_product_studio` directory into your QGIS active profile plugin
    - **Products**: Pick an **industry preset** (Urban / Agriculture / Disaster / Mining) or check products manually; configure smoothing and the composite-index weights; tick **Create QGIS project (.qgz)** to save the styled project next to the outputs.
    - **Contours**: Adjust contour interval and index multiplier, and the **peak point threshold (% of relief)** — only summits in the top N% of the elevation range become spot markers (0 = Off).
    - **Hydrology**: Enable drainage extraction and set stream initiation threshold ($ha$).
-   - **Layout**: Configure automated print layout generation and PDF/PNG export. The layout is created and saved into the project, but **no longer opens automatically** — open it from the Layouts manager whenever you are ready.
-   - **Settings**: Z-exaggeration and base thickness for the **STL/OBJ 3D-print export**.
+   - **Layout**: Choose a layout template and map style independently, check readiness, add designs to the map-book queue and generate PDF/PNG layouts. Elevation colors remain independently selectable under **Settings**.
+   - **Settings**: Choose Web 3D quality and configure Z-exaggeration/base thickness for the **STL/OBJ 3D-print export**.
    - **Inspect**: Reopen the output folder / intelligence report of any of the last 20 runs.
 6. Click **Build Product Package**.
 7. Once finished, click **🌐 View 3D Web Map** or **📊 View Report** to launch the interactive deliverables in your default browser.
@@ -201,6 +202,10 @@ terrain_product_studio/
 │   ├── intelligence_report.py # Topographic Intelligence HTML generator
 │   ├── layers.py              # Project layer stacking & grouping
 │   ├── layouts.py             # Print layout composer (paper size, themes)
+│   ├── layout_styles.py       # Per-layout style snapshots and QML export
+│   ├── style_packs.py         # Cohesive style-pack and layout-template model
+│   ├── cartography_qa.py      # Map readiness and recipe explanations
+│   ├── share_package.py       # Transparent share-package manifest
 │   ├── math_utils.py          # nice_interval, snapping, prefix sanitizing
 │   ├── native_hydrology.py    # D8 routing & Continuous Strahler tracing
 │   ├── pipeline.py            # Product dependency planner

@@ -12,7 +12,6 @@ from qgis.PyQt.QtGui import (
     QColor,
     QDesktopServices,
     QFont,
-    QFontDatabase,
     QIcon,
     QLinearGradient,
     QPainter,
@@ -55,11 +54,19 @@ from qgis.core import (
 from qgis.gui import QgsMapLayerComboBox
 
 from .core.dem_info import format_dem_report, inspect_dem_layer
+from .core.design_presets import (
+    DEFAULT_DESIGN_PRESET,
+    DESIGN_PRESETS,
+    design_preset,
+)
 from .core.export_3d import export_obj, export_stl
 from .core.history import append_history, load_history
 from .core.intelligence_report import generate_intelligence_report
 from .core.layers import add_terrain_results
-from .core.layouts import create_terrain_layout
+from .core.layouts import create_terrain_layout, create_terrain_layouts
+from .core.layout_styles import export_style_pack_qml
+from .core.cartography_qa import inspect_layer_recipe, validate_layout_config
+from .core.font_resolver import resolve_font_family
 from .core.math_utils import sanitize_prefix, unique_path
 from .core.presets import (
     CARTOGRAPHY_PRESETS,
@@ -71,6 +78,9 @@ from .core.presets import (
     TERRAIN_PALETTES,
 )
 from .core.product_registry import DEFAULT_PRODUCT_REGISTRY
+from .core.qgis_compat import font_families
+from .core.share_package import write_share_manifest
+from .core.style_packs import LAYOUT_TEMPLATES
 from .core.web_3d_viewer import generate_3d_web_viewer
 from .ui.task_controller import ProcessingTaskController
 
@@ -88,6 +98,7 @@ class TerrainStudioDock(QDockWidget):
         self._fonts_populated = False
         self._contour_suggestion = None
         self._last_layout_layers = None
+        self._font_sync_guard = False
         self._build_ui()
         self._connect_signals()
         self._on_layer_changed(self.dem_combo.currentLayer())
@@ -97,10 +108,14 @@ class TerrainStudioDock(QDockWidget):
         return QCoreApplication.translate("TerrainStudioDock", message)
 
     def _build_ui(self):
-        # Body is wrapped in a QScrollArea so every control stays reachable
-        # when the dock is docked into a small area (the Run button was being
-        # clipped away on shorter screens with the previous fixed-size dock).
-        body = QWidget(self)
+        # Long setup controls scroll independently while the run/progress bar
+        # remains pinned to the bottom of the dock on small screens.
+        root = QWidget(self)
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(4)
+
+        body = QWidget(root)
         outer = QVBoxLayout(body)
         outer.setContentsMargins(8, 8, 8, 8)
 
@@ -180,18 +195,62 @@ class TerrainStudioDock(QDockWidget):
             )
         )
         output_layout.addWidget(self.create_project_check, 2, 0, 1, 3)
+        self.share_manifest_check = QCheckBox(
+            self.tr("Create transparent share manifest (data, styles and layouts)")
+        )
+        self.share_manifest_check.setChecked(True)
+        output_layout.addWidget(self.share_manifest_check, 3, 0, 1, 3)
+        self.portable_dem_check = QCheckBox(
+            self.tr("Include a portable DEM copy for sharing (slower)")
+        )
+        self.portable_dem_check.setChecked(False)
+        self.portable_dem_check.setToolTip(
+            self.tr(
+                "Keeps one numeric GeoTIFF DEM beside the package so another user can "
+                "open the source elevation data. This is not an RGB image and does not "
+                "change the DEM values. Leave off to save time and disk space."
+            )
+        )
+        output_layout.addWidget(self.portable_dem_check, 4, 0, 1, 3)
         outer.addWidget(output_group)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._create_products_tab(), self.tr("Products"))
-        self.tabs.addTab(self._create_contour_tab(), self.tr("Contours"))
-        self.tabs.addTab(self._create_hydrology_tab(), self.tr("Hydrology"))
-        self.cartography_tab_index = self.tabs.addTab(self._create_cartography_tab(), self.tr("Layout"))
-        self.tabs.addTab(self._create_settings_tab(), self.tr("Settings"))
+        self.tabs.setMinimumHeight(285)
+        self.tabs.addTab(self._scrollable_options_page(self._create_products_tab()), self.tr("Products"))
+        self.tabs.addTab(self._scrollable_options_page(self._create_contour_tab()), self.tr("Contours"))
+        self.tabs.addTab(self._scrollable_options_page(self._create_hydrology_tab()), self.tr("Hydrology"))
+        self.cartography_tab_index = self.tabs.addTab(
+            self._scrollable_options_page(self._create_cartography_tab()), self.tr("Layout")
+        )
+        self.tabs.addTab(self._scrollable_options_page(self._create_settings_tab()), self.tr("Settings"))
         self.report_tab_index = self.tabs.addTab(self._create_report_tab(), self.tr("Inspect"))
         self._update_index_preview()
-        self._on_cartography_preset_changed()
+        self._design_sync_guard = False
+        self._apply_design_preset()
         outer.addWidget(self.tabs, 1)
+
+        scroll = QScrollArea(root)
+        scroll.setObjectName("terrainSetupScroll")
+        scroll.setWidgetResizable(True)
+        try:
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        except AttributeError:  # Qt 5 unscoped enum
+            scroll.setHorizontalScrollBarPolicy(getattr(Qt, "ScrollBarAlwaysOff"))
+            scroll.setVerticalScrollBarPolicy(getattr(Qt, "ScrollBarAsNeeded"))
+        try:
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+        except AttributeError:  # Qt 5 fallback
+            scroll.setFrameShape(getattr(QFrame, "NoFrame"))
+        scroll.setWidget(body)
+        self.setup_scroll = scroll
+        root_layout.addWidget(scroll, 1)
+
+        footer = QWidget(root)
+        footer.setObjectName("terrainActionFooter")
+        footer_layout = QVBoxLayout(footer)
+        footer_layout.setContentsMargins(8, 4, 8, 8)
+        footer_layout.setSpacing(4)
 
         presets = QHBoxLayout()
         self.quick_button = QPushButton(self.tr("Quick Basemap"))
@@ -200,12 +259,12 @@ class TerrainStudioDock(QDockWidget):
         presets.addWidget(self.quick_button)
         presets.addWidget(self.full_button)
         presets.addWidget(self.clear_button)
-        outer.addLayout(presets)
+        footer_layout.addLayout(presets)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        outer.addWidget(self.progress)
+        footer_layout.addWidget(self.progress)
 
         actions = QHBoxLayout()
         self.run_button = QPushButton(self.tr("Build Product Package"))
@@ -214,7 +273,7 @@ class TerrainStudioDock(QDockWidget):
         self.cancel_button.setEnabled(False)
         actions.addWidget(self.run_button, 1)
         actions.addWidget(self.cancel_button)
-        outer.addLayout(actions)
+        footer_layout.addLayout(actions)
 
         # Quick Results Action Bar
         results_bar = QHBoxLayout()
@@ -229,34 +288,36 @@ class TerrainStudioDock(QDockWidget):
         results_bar.addWidget(self.open_3d_button)
         results_bar.addWidget(self.open_report_button)
         results_bar.addWidget(self.docs_button)
-        outer.addLayout(results_bar)
+        footer_layout.addLayout(results_bar)
+        root_layout.addWidget(footer, 0)
 
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        # Qt6 scoped enum fallback pattern (same as QgsMapLayerProxyModel below)
-        try:
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        except AttributeError:  # Qt 5 unscoped enum
-            scroll.setHorizontalScrollBarPolicy(getattr(Qt, "ScrollBarAsNeeded"))
-            scroll.setVerticalScrollBarPolicy(getattr(Qt, "ScrollBarAsNeeded"))
-        try:
-            scroll.setFrameShape(QFrame.Shape.NoFrame)
-        except AttributeError:  # Qt 5 fallback
-            scroll.setFrameShape(getattr(QFrame, "NoFrame"))
-        scroll.setWidget(body)
-
-        self.setWidget(scroll)
+        self.setWidget(root)
         self.setMinimumWidth(400)
         self.resize(460, 680)
+
+    def _scrollable_options_page(self, content):
+        """Wrap an option page so a large form cannot stretch the whole dock."""
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame if hasattr(QFrame, "Shape") else QFrame.NoFrame)
+        try:
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        except AttributeError:
+            scroll.setHorizontalScrollBarPolicy(getattr(Qt, "ScrollBarAlwaysOff"))
+            scroll.setVerticalScrollBarPolicy(getattr(Qt, "ScrollBarAsNeeded"))
+        scroll.setWidget(content)
+        return scroll
 
     def _create_products_tab(self):
         tab = QWidget()
         layout = QGridLayout(tab)
         self.products = {}
         self._product_labels = {}
-        # Default setup ticks only a few basemap layers (color relief, hillshade,
-        # spot peaks) — everything else is opt-in via Quick Basemap / Select All.
+        # The default setup is intentionally small: the canonical DEM supplies
+        # color, with multidirectional hillshade, peaks and smoothed contours.
+        # Everything analytical stays opt-in via presets or Select All.
         definitions = tuple(
             (
                 product.parameter,
@@ -354,6 +415,7 @@ class TerrainStudioDock(QDockWidget):
         self.smoothing_combo.addItems(
             [self.tr("Off"), self.tr("Light"), self.tr("Medium"), self.tr("Heavy")]
         )
+        self.smoothing_combo.setCurrentIndex(2)
         self.simplify_tolerance = QDoubleSpinBox()
         self.simplify_tolerance.setRange(0.0, 100000.0)
         self.simplify_tolerance.setDecimals(1)
@@ -409,6 +471,28 @@ class TerrainStudioDock(QDockWidget):
     def _create_cartography_tab(self):
         tab = QWidget()
         layout = QFormLayout(tab)
+        self.design_preset_combo = QComboBox()
+        for key, design in DESIGN_PRESETS.items():
+            self.design_preset_combo.addItem(design.label, key)
+        self.design_preset_combo.addItem(self.tr("Custom design"), "")
+        default_design_index = self.design_preset_combo.findData(
+            DEFAULT_DESIGN_PRESET
+        )
+        if default_design_index >= 0:
+            self.design_preset_combo.setCurrentIndex(default_design_index)
+        self.design_description = QLabel()
+        self.design_description.setWordWrap(True)
+        self.design_description.setMinimumHeight(34)
+        self.design_preview = QLabel()
+        self.design_preview.setFixedSize(320, 226)
+        self.design_preview.setStyleSheet(
+            "border: 1px solid #747474; border-radius: 4px; "
+            "background: #252525; color: #b8b8b8; padding: 2px;"
+        )
+        try:
+            self.design_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        except AttributeError:
+            self.design_preview.setAlignment(getattr(Qt, "AlignCenter"))
         self.cartography_combo = QComboBox()
         for key, preset in CARTOGRAPHY_PRESETS.items():
             self.cartography_combo.addItem(preset["label"], key)
@@ -419,6 +503,22 @@ class TerrainStudioDock(QDockWidget):
         self.cartography_description.setWordWrap(True)
         self.theme_preview = QLabel()
         self.theme_preview.setFixedSize(164, 84)
+        self.layout_template_combo = QComboBox()
+        for key, template in LAYOUT_TEMPLATES.items():
+            self.layout_template_combo.addItem(template.label, key)
+        default_layout_index = self.layout_template_combo.findData("classic_topo")
+        if default_layout_index >= 0:
+            self.layout_template_combo.setCurrentIndex(default_layout_index)
+        self.grid_mode_combo = QComboBox()
+        self.grid_mode_combo.addItem(self.tr("Map / DEM CRS"), "map_crs")
+        self.grid_mode_combo.addItem("WGS 84 · EPSG:4326", "wgs84")
+        self.grid_mode_combo.addItem(
+            self.tr("Dual · Map CRS + WGS 84"), "dual"
+        )
+        self.grid_mode_combo.addItem(self.tr("Custom EPSG…"), "custom")
+        self.grid_custom_edit = QLineEdit("EPSG:32648")
+        self.grid_custom_edit.setPlaceholderText("EPSG:32648")
+        self.grid_custom_edit.setEnabled(False)
         try:
             self.theme_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         except AttributeError:
@@ -448,7 +548,16 @@ class TerrainStudioDock(QDockWidget):
         # Plain combo populated lazily on first Layout-tab visit: scanning the
         # system font database at dock startup was a noticeable UI freeze.
         self.font_combo = QComboBox()
+        self.style_pack_font_check = QCheckBox(
+            self.tr("Use layout-recommended font")
+        )
+        self.style_pack_font_check.setChecked(True)
+        self.font_resolution_label = QLabel()
+        self.font_resolution_label.setWordWrap(True)
         self.layout_name_edit = QLineEdit("Terrain Map")
+        self.layout_extent_combo = QComboBox()
+        self.layout_extent_combo.addItem(self.tr("Full generated extent"), "full")
+        self.layout_extent_combo.addItem(self.tr("Current map canvas"), "canvas")
         self.map_title_edit = QLineEdit("TOPOGRAPHIC TERRAIN MAP")
         self.map_subtitle_edit = QLineEdit("DEM-derived relief, contours and drainage")
         self.map_author_edit = QLineEdit("Nguyễn Văn Tín")
@@ -457,6 +566,8 @@ class TerrainStudioDock(QDockWidget):
         self.create_layout_check.setChecked(True)
         self.grid_check = QCheckBox(self.tr("Coordinate border and grid"))
         self.grid_check.setChecked(True)
+        self.legend_check = QCheckBox(self.tr("Show map legend"))
+        self.legend_check.setChecked(True)
         self.open_layout_check = QCheckBox(self.tr("Open Layout Designer when finished"))
         self.open_layout_check.setChecked(False)
         export_row = QWidget()
@@ -471,19 +582,82 @@ class TerrainStudioDock(QDockWidget):
         self.layout_dpi.setRange(72, 1200)
         self.layout_dpi.setValue(300)
         self.layout_dpi.setSuffix(" dpi")
-        layout.addRow(self.tr("Map template"), self.cartography_combo)
-        layout.addRow(self.theme_preview)
-        layout.addRow(self.cartography_description)
+        self.style_pack_summary = QLabel()
+        self.style_pack_summary.setWordWrap(True)
+        self.layout_queue = QListWidget()
+        self.layout_queue.setMaximumHeight(112)
+        self.layout_queue.setToolTip(
+            self.tr(
+                "Leave empty to generate the current design as one default layout. "
+                "Add designs here to create a map book."
+            )
+        )
+        queue_buttons = QWidget()
+        queue_button_layout = QHBoxLayout(queue_buttons)
+        queue_button_layout.setContentsMargins(0, 0, 0, 0)
+        self.add_layout_button = QPushButton(self.tr("Add current"))
+        self.duplicate_layout_button = QPushButton(self.tr("Duplicate"))
+        self.remove_layout_button = QPushButton(self.tr("Remove"))
+        self.move_layout_up_button = QPushButton("↑")
+        self.move_layout_down_button = QPushButton("↓")
+        self.create_all_layouts_button = QPushButton(self.tr("Generate all"))
+        queue_button_layout.addWidget(self.add_layout_button)
+        queue_button_layout.addWidget(self.duplicate_layout_button)
+        queue_button_layout.addWidget(self.remove_layout_button)
+        queue_button_layout.addWidget(self.move_layout_up_button)
+        queue_button_layout.addWidget(self.move_layout_down_button)
+        queue_button_layout.addWidget(self.create_all_layouts_button)
+        self.recipe_inspector_label = QLabel()
+        self.recipe_inspector_label.setWordWrap(True)
+        self.qa_layout_button = QPushButton(self.tr("Check map readiness"))
+        layout.addRow(self.tr("Design preset"), self.design_preset_combo)
+        layout.addRow(self.design_description)
+        layout.addRow(self.design_preview)
+
+        self.advanced_design_group = QGroupBox(self.tr("Advanced overrides"))
+        self.advanced_design_group.setCheckable(True)
+        self.advanced_design_group.setChecked(False)
+        advanced_outer = QVBoxLayout(self.advanced_design_group)
+        advanced_outer.setContentsMargins(8, 4, 8, 8)
+        self.advanced_design_body = QWidget()
+        advanced_layout = QFormLayout(self.advanced_design_body)
+        advanced_layout.addRow(self.tr("Map style"), self.cartography_combo)
+        advanced_layout.addRow(self.theme_preview)
+        advanced_layout.addRow(self.cartography_description)
+        advanced_layout.addRow(
+            self.tr("Layout template"), self.layout_template_combo
+        )
+        advanced_layout.addRow(self.style_pack_summary)
+        advanced_layout.addRow(self.style_pack_font_check)
+        advanced_layout.addRow(self.tr("Font family"), self.font_combo)
+        advanced_layout.addRow(self.font_resolution_label)
+        advanced_layout.addRow(self.grid_check)
+        advanced_layout.addRow(self.legend_check)
+        advanced_layout.addRow(self.tr("Coordinate grid"), self.grid_mode_combo)
+        advanced_layout.addRow(self.tr("Custom grid CRS"), self.grid_custom_edit)
+        advanced_outer.addWidget(self.advanced_design_body)
+        self.advanced_design_body.setVisible(False)
+        layout.addRow(self.advanced_design_group)
         layout.addRow(self.tr("Paper size"), paper_row)
         layout.addRow(self.create_layout_button)
-        layout.addRow(self.tr("Font family"), self.font_combo)
+        layout.addRow(self.tr("Map book queue"), self.layout_queue)
+        queue_hint = QLabel(
+            self.tr(
+                "Empty queue = one current layout. Add several designs, then use ↑/↓ to order them."
+            )
+        )
+        queue_hint.setWordWrap(True)
+        layout.addRow(queue_hint)
+        layout.addRow(queue_buttons)
+        layout.addRow(self.recipe_inspector_label)
+        layout.addRow(self.qa_layout_button)
         layout.addRow(self.tr("Layout name"), self.layout_name_edit)
+        layout.addRow(self.tr("Map extent"), self.layout_extent_combo)
         layout.addRow(self.tr("Map title"), self.map_title_edit)
         layout.addRow(self.tr("Subtitle"), self.map_subtitle_edit)
         layout.addRow(self.tr("Author / Organization"), self.map_author_edit)
         layout.addRow(self.tr("Data source"), self.map_source_edit)
         layout.addRow(self.create_layout_check)
-        layout.addRow(self.grid_check)
         layout.addRow(self.open_layout_check)
         layout.addRow(self.tr("Export layout"), export_row)
         layout.addRow(self.tr("Resolution"), self.layout_dpi)
@@ -510,8 +684,18 @@ class TerrainStudioDock(QDockWidget):
         default_index = self.palette_combo.findData(DEFAULT_PALETTE)
         if default_index >= 0:
             self.palette_combo.setCurrentIndex(default_index)
+        self.palette_combo.setEnabled(True)
         self.compression_combo = QComboBox()
         self.compression_combo.addItems(["DEFLATE", "ZSTD", "LZW", "NONE"])
+        self.web_3d_quality_combo = QComboBox()
+        self.web_3d_quality_combo.addItems(
+            [
+                self.tr("Fast · 256 samples"),
+                self.tr("Balanced · 384 samples"),
+                self.tr("High · 512 samples"),
+            ]
+        )
+        self.web_3d_quality_combo.setCurrentIndex(1)
         self.auto_reproject_check = QCheckBox(self.tr("Automatically reproject geographic DEM to UTM"))
         self.auto_reproject_check.setChecked(True)
         self.vertical_exaggeration = QDoubleSpinBox()
@@ -549,8 +733,17 @@ class TerrainStudioDock(QDockWidget):
         self.multi_hazard_weight_slope.setValue(0.2)
 
         layout.addRow(self.tr("Elevation unit"), self.z_unit_combo)
-        layout.addRow(self.tr("Color palette"), self.palette_combo)
+        layout.addRow(self.tr("Elevation color palette"), self.palette_combo)
         layout.addRow(self.tr("GeoTIFF compression"), self.compression_combo)
+        layout.addRow(self.tr("Web 3D quality"), self.web_3d_quality_combo)
+        performance_note = QLabel(
+            self.tr(
+                "Runs in a cancellable QGIS background task. GeoTIFF creation uses all CPU cores; "
+                "independent Web 3D raster reads run concurrently."
+            )
+        )
+        performance_note.setWordWrap(True)
+        layout.addRow(performance_note)
         layout.addRow(self.auto_reproject_check)
         layout.addRow(self.tr("Hillshade vertical exaggeration"), self.vertical_exaggeration)
         layout.addRow(self.tr("Light azimuth"), self.azimuth)
@@ -628,11 +821,45 @@ class TerrainStudioDock(QDockWidget):
         self.cartography_combo.currentIndexChanged.connect(
             self._on_cartography_preset_changed
         )
-        self._palette_sync_guard = False
-        self.palette_combo.currentIndexChanged.connect(self._on_palette_changed)
+        self.cartography_combo.currentIndexChanged.connect(
+            self._mark_design_custom
+        )
+        self.layout_template_combo.currentIndexChanged.connect(
+            self._on_layout_template_changed
+        )
+        self.layout_template_combo.currentIndexChanged.connect(
+            self._mark_design_custom
+        )
+        self.design_preset_combo.currentIndexChanged.connect(
+            self._apply_design_preset
+        )
+        self.advanced_design_group.toggled.connect(
+            self.advanced_design_body.setVisible
+        )
+        self.palette_combo.currentIndexChanged.connect(self._mark_design_custom)
+        self.grid_mode_combo.currentIndexChanged.connect(
+            self._on_grid_mode_changed
+        )
+        self.grid_mode_combo.currentIndexChanged.connect(
+            self._mark_design_custom
+        )
+        self.grid_custom_edit.textChanged.connect(self._mark_design_custom)
         self.create_layout_check.toggled.connect(self._update_layout_controls)
         self.apply_suggestion_button.clicked.connect(self._apply_contour_suggestion)
         self.create_layout_button.clicked.connect(self._create_layout_now)
+        self.create_all_layouts_button.clicked.connect(self._create_all_layouts_now)
+        self.add_layout_button.clicked.connect(self._add_current_layout_to_queue)
+        self.duplicate_layout_button.clicked.connect(self._duplicate_queued_layout)
+        self.remove_layout_button.clicked.connect(self._remove_queued_layout)
+        self.move_layout_up_button.clicked.connect(
+            lambda: self._move_queued_layout(-1)
+        )
+        self.move_layout_down_button.clicked.connect(
+            lambda: self._move_queued_layout(1)
+        )
+        self.qa_layout_button.clicked.connect(self._show_layout_qa)
+        self.style_pack_font_check.toggled.connect(self._on_style_pack_font_toggled)
+        self.font_combo.currentTextChanged.connect(self._refresh_font_resolution)
         self.quick_button.clicked.connect(self._select_quick)
         self.full_button.clicked.connect(self._select_all)
         self.clear_button.clicked.connect(self._clear_selection)
@@ -802,54 +1029,156 @@ class TerrainStudioDock(QDockWidget):
             self.export_png_check,
             self.layout_dpi,
             self.layout_name_edit,
+            self.layout_extent_combo,
             self.map_title_edit,
             self.map_subtitle_edit,
             self.map_author_edit,
             self.map_source_edit,
             self.font_combo,
+            self.style_pack_font_check,
+            self.legend_check,
+            self.layout_queue,
+            self.add_layout_button,
+            self.duplicate_layout_button,
+            self.remove_layout_button,
+            self.move_layout_up_button,
+            self.move_layout_down_button,
+            self.create_all_layouts_button,
+            self.qa_layout_button,
+            self.layout_template_combo,
         ):
             widget.setEnabled(enabled)
+        self.font_combo.setEnabled(
+            enabled and not self.style_pack_font_check.isChecked()
+        )
+        self.create_all_layouts_button.setEnabled(
+            enabled and bool(self._last_layout_layers)
+        )
 
     def _on_cartography_preset_changed(self):
         preset_key = self.cartography_combo.currentData() or DEFAULT_CARTOGRAPHY
         preset = CARTOGRAPHY_PRESETS[preset_key]
         self.cartography_description.setText(preset["description"])
         self.theme_preview.setPixmap(self._theme_preview_pixmap(preset))
-        if self.font_combo.count():
-            self.font_combo.setCurrentText(preset["font"])
-        palette_index = self.palette_combo.findData(preset["palette"])
-        if palette_index >= 0:
-            self._palette_sync_guard = True
-            try:
-                self.palette_combo.setCurrentIndex(palette_index)
-            finally:
-                self._palette_sync_guard = False
+        self._update_recipe_inspector()
 
-    def _on_palette_changed(self, index):
-        """Keep the map template coherent with the chosen relief palette.
-
-        A Dark Terrain palette auto-switches the cartography theme to Dark /
-        Night (and its dark styling). A light palette only reverts to the
-        Natural Earth Light default when the current theme is still night_dark
-        — a manually chosen light theme (USGS, Antique, …) is left alone.
-        """
-        if getattr(self, "_palette_sync_guard", False):
+    def _apply_design_preset(self, *_args):
+        key = self.design_preset_combo.currentData()
+        if not key:
+            self.design_description.setText(
+                self.tr("Custom combination of layout, map style, palette and grid.")
+            )
+            self.design_preview.setPixmap(QPixmap())
+            self.design_preview.setText(
+                self.tr("Custom design · generate a layout to preview")
+            )
             return
-        palette_key = self.palette_combo.itemData(index)
-        if not palette_key:
-            return  # separator entries carry no data
-        palette = TERRAIN_PALETTES.get(palette_key, {})
-        current = self.cartography_combo.currentData()
-        if palette.get("dark"):
-            target = "night_dark"
-        elif current == "night_dark":
-            target = DEFAULT_CARTOGRAPHY
+        design = design_preset(key)
+        self._design_sync_guard = True
+        try:
+            for combo, value in (
+                (self.cartography_combo, design.map_style),
+                (self.layout_template_combo, design.layout_template),
+                (self.palette_combo, design.palette),
+                (self.grid_mode_combo, design.grid_mode),
+            ):
+                index = combo.findData(value)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+        finally:
+            self._design_sync_guard = False
+        self.design_description.setText(design.description)
+        self._on_cartography_preset_changed()
+        self._on_layout_template_changed()
+        self._on_grid_mode_changed()
+        self._update_design_preview(design)
+
+    def _update_design_preview(self, design):
+        path = os.path.join(
+            os.path.dirname(__file__), "assets", "preset_previews", design.preview
+        )
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            self.design_preview.setPixmap(QPixmap())
+            self.design_preview.setText(self.tr("Preview will be generated from the sample DEM"))
+            return
+        try:
+            aspect = Qt.AspectRatioMode.KeepAspectRatio
+            transform = Qt.TransformationMode.SmoothTransformation
+        except AttributeError:
+            aspect = getattr(Qt, "KeepAspectRatio")
+            transform = getattr(Qt, "SmoothTransformation")
+        self.design_preview.setText("")
+        self.design_preview.setPixmap(
+            pixmap.scaled(self.design_preview.size(), aspect, transform)
+        )
+
+    def _mark_design_custom(self, *_args):
+        if getattr(self, "_design_sync_guard", False):
+            return
+        custom_index = self.design_preset_combo.findData("")
+        if custom_index >= 0 and self.design_preset_combo.currentIndex() != custom_index:
+            self.design_preset_combo.setCurrentIndex(custom_index)
+
+    def _on_grid_mode_changed(self, *_args):
+        self.grid_custom_edit.setEnabled(
+            self.grid_mode_combo.currentData() == "custom"
+        )
+
+    def _on_layout_template_changed(self, *_args):
+        template_key = self.layout_template_combo.currentData() or "classic_topo"
+        template = LAYOUT_TEMPLATES[template_key]
+        self.style_pack_summary.setText(
+            f"{template.label} · {template.description}"
+        )
+        self.grid_check.setChecked(template.show_grid)
+        self.legend_check.setChecked(template.show_legend)
+        if self.style_pack_font_check.isChecked() and self.font_combo.count():
+            self._select_resolved_font(template.preferred_font)
+
+    def _on_style_pack_font_toggled(self, checked):
+        self.font_combo.setEnabled(not checked and self.create_layout_check.isChecked())
+        if checked and self.font_combo.count():
+            template_key = self.layout_template_combo.currentData() or "classic_topo"
+            self._select_resolved_font(
+                LAYOUT_TEMPLATES[template_key].preferred_font
+            )
         else:
+            self._refresh_font_resolution()
+
+    def _select_resolved_font(self, requested):
+        resolved = resolve_font_family(requested, font_families())
+        self._font_sync_guard = True
+        try:
+            index = self.font_combo.findText(resolved.family)
+            if index >= 0:
+                self.font_combo.setCurrentIndex(index)
+            else:
+                self.font_combo.setCurrentText(resolved.family)
+        finally:
+            self._font_sync_guard = False
+        self.font_resolution_label.setText(
+            self.tr("Font fallback") + f": {requested} → {resolved.family}"
+            if resolved.substituted
+            else self.tr("Resolved font") + f": {resolved.family}"
+        )
+
+    def _refresh_font_resolution(self, *_args):
+        if self._font_sync_guard or not self.font_combo.count():
             return
-        if current != target:
-            target_index = self.cartography_combo.findData(target)
-            if target_index >= 0:
-                self.cartography_combo.setCurrentIndex(target_index)
+        requested = (
+            LAYOUT_TEMPLATES[
+                self.layout_template_combo.currentData() or "classic_topo"
+            ].preferred_font
+            if self.style_pack_font_check.isChecked()
+            else self.font_combo.currentText()
+        )
+        resolved = resolve_font_family(requested, font_families())
+        self.font_resolution_label.setText(
+            self.tr("Font fallback") + f": {requested} → {resolved.family}"
+            if resolved.substituted
+            else self.tr("Resolved font") + f": {resolved.family}"
+        )
 
     @staticmethod
     def _preset_color(value):
@@ -970,6 +1299,137 @@ class TerrainStudioDock(QDockWidget):
                 self, self.tr("Layout"), f"Could not create layout: {error}"
             )
 
+    @staticmethod
+    def _user_role():
+        try:
+            return Qt.ItemDataRole.UserRole
+        except AttributeError:
+            return getattr(Qt, "UserRole")
+
+    def _queue_label(self, config):
+        preset = CARTOGRAPHY_PRESETS.get(
+            config.get("preset"), CARTOGRAPHY_PRESETS[DEFAULT_CARTOGRAPHY]
+        )
+        template = LAYOUT_TEMPLATES.get(
+            config.get("layout_template"), LAYOUT_TEMPLATES["classic_topo"]
+        )
+        paper = str(config.get("paper_size", "auto")).upper()
+        orientation = str(config.get("orientation", "auto")).title()
+        return (
+            f"{config.get('layout_name') or 'Terrain Map'} · {template.label} · "
+            f"{preset['label']} · {paper}/{orientation}"
+        )
+
+    def _add_current_layout_to_queue(self):
+        config = self._cartography_config()
+        config["create_layout"] = True
+        item = QListWidgetItem(self._queue_label(config))
+        item.setData(self._user_role(), dict(config))
+        self.layout_queue.addItem(item)
+        self.layout_queue.setCurrentItem(item)
+
+    def _duplicate_queued_layout(self):
+        item = self.layout_queue.currentItem()
+        if item is None:
+            self._add_current_layout_to_queue()
+            return
+        config = dict(item.data(self._user_role()) or {})
+        base = config.get("layout_name") or "Terrain Map"
+        config["layout_name"] = f"{base} copy"
+        config["title"] = config.get("title") or base
+        copy_item = QListWidgetItem(self._queue_label(config))
+        copy_item.setData(self._user_role(), dict(config))
+        self.layout_queue.addItem(copy_item)
+        self.layout_queue.setCurrentItem(copy_item)
+
+    def _remove_queued_layout(self):
+        row = self.layout_queue.currentRow()
+        if row < 0:
+            return
+        self.layout_queue.takeItem(row)
+
+    def _move_queued_layout(self, offset):
+        row = self.layout_queue.currentRow()
+        target = row + int(offset)
+        if row < 0 or target < 0 or target >= self.layout_queue.count():
+            return
+        item = self.layout_queue.takeItem(row)
+        self.layout_queue.insertItem(target, item)
+        self.layout_queue.setCurrentItem(item)
+
+    def _queued_or_current_layout_configs(self):
+        configs = []
+        for row in range(self.layout_queue.count()):
+            item = self.layout_queue.item(row)
+            value = item.data(self._user_role())
+            if isinstance(value, dict):
+                configs.append(dict(value))
+        return configs or [self._cartography_config()]
+
+    def _create_all_layouts_now(self):
+        if not self._last_layout_layers:
+            QMessageBox.information(
+                self,
+                self.tr("No generated layers"),
+                self.tr("Run the terrain package first, then generate the map book."),
+            )
+            return
+        configs = self._queued_or_current_layout_configs()
+        north_arrow = os.path.join(
+            os.path.dirname(__file__), "icons", "north_arrow_classic.svg"
+        )
+        try:
+            layouts, exported = create_terrain_layouts(
+                QgsProject.instance(),
+                self._last_layout_layers,
+                self.output_edit.text().strip(),
+                configs,
+                north_arrow,
+            )
+            self.report_edit.appendPlainText(
+                self.tr("Map book layouts") + ": " + ", ".join(layout.name() for layout in layouts)
+            )
+            if exported:
+                self.report_edit.appendPlainText(
+                    f"{self.tr('Exported')}:\n" + "\n".join(exported)
+                )
+            if configs and configs[-1].get("open_layout"):
+                self.iface.openLayoutDesigner(layouts[-1])
+        except Exception as error:
+            QMessageBox.warning(
+                self, self.tr("Map book"), f"Could not generate layouts: {error}"
+            )
+
+    def _update_recipe_inspector(self):
+        available = self._last_layout_layers.keys() if self._last_layout_layers else ()
+        preset = self.cartography_combo.currentData() or DEFAULT_CARTOGRAPHY
+        selected, notes = inspect_layer_recipe(available, preset)
+        if not available:
+            text = self.tr("Layer plan will appear after the terrain run.")
+        else:
+            text = self.tr("Layout layers") + ": " + ", ".join(selected)
+            if notes:
+                text += "\n" + "\n".join(f"• {note}" for note in notes)
+        self.recipe_inspector_label.setText(text)
+
+    def _show_layout_qa(self):
+        config = self._cartography_config()
+        available = self._last_layout_layers.keys() if self._last_layout_layers else ()
+        findings = validate_layout_config(
+            config,
+            available,
+            font_substituted=bool(config.get("font_substituted")),
+        )
+        QMessageBox.information(
+            self,
+            self.tr("Map readiness"),
+            "\n\n".join(
+                f"[{finding.level.upper()}] {finding.message}"
+                + (f"\n{finding.fix}" if finding.fix else "")
+                for finding in findings
+            ),
+        )
+
     def _on_tab_changed(self, index):
         if index == self.cartography_tab_index and not self._fonts_populated:
             self._populate_fonts()
@@ -1063,9 +1523,17 @@ class TerrainStudioDock(QDockWidget):
     def _populate_fonts(self):
         """Scan system fonts once, only when the Layout tab is first opened."""
         self._fonts_populated = True
+        selected = self.font_combo.currentText()
         self.font_combo.clear()
-        self.font_combo.addItems(QFontDatabase().families())
-        self._on_cartography_preset_changed()
+        self.font_combo.addItems(font_families())
+        if self.style_pack_font_check.isChecked():
+            template_key = self.layout_template_combo.currentData() or "classic_topo"
+            self._select_resolved_font(
+                LAYOUT_TEMPLATES[template_key].preferred_font
+            )
+        elif selected:
+            self._select_resolved_font(selected)
+        self._on_style_pack_font_toggled(self.style_pack_font_check.isChecked())
 
     def _browse_dem(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -1138,8 +1606,9 @@ class TerrainStudioDock(QDockWidget):
 
     def _select_quick(self):
         for key, checkbox in self.products.items():
-            checkbox.setChecked(key in {"CREATE_COLOR_RELIEF", "CREATE_MULTI_HILLSHADE", "CREATE_SPOT_ELEVATIONS"})
+            checkbox.setChecked(key in {"CREATE_MULTI_HILLSHADE", "CREATE_SPOT_ELEVATIONS"})
         self.contour_check.setChecked(True)
+        self.smoothing_combo.setCurrentIndex(2)
         self.hydrology_check.setChecked(False)
 
     def _select_all(self):
@@ -1164,6 +1633,8 @@ class TerrainStudioDock(QDockWidget):
             "AUTO_REPROJECT": self.auto_reproject_check.isChecked(),
             "PALETTE": self._palette_algorithm_index(),
             "COMPRESSION": self.compression_combo.currentIndex(),
+            "WEB_3D_QUALITY": self.web_3d_quality_combo.currentIndex(),
+            "PORTABLE_DEM_COPY": self.portable_dem_check.isChecked(),
             "VERTICAL_EXAGGERATION": self.vertical_exaggeration.value(),
             "AZIMUTH": self.azimuth.value(),
             "ALTITUDE": self.altitude.value(),
@@ -1202,9 +1673,25 @@ class TerrainStudioDock(QDockWidget):
         return parameters
 
     def _cartography_config(self):
-        return {
-            "preset": self.cartography_combo.currentData() or DEFAULT_CARTOGRAPHY,
-            "font_family": self.font_combo.currentText() or "Sans Serif",
+        preset_key = self.cartography_combo.currentData() or DEFAULT_CARTOGRAPHY
+        requested_font = (
+            LAYOUT_TEMPLATES[
+                self.layout_template_combo.currentData() or "classic_topo"
+            ].preferred_font
+            if self.style_pack_font_check.isChecked()
+            else (self.font_combo.currentText() or "Sans Serif")
+        )
+        resolved_font = resolve_font_family(requested_font, font_families())
+        config = {
+            "preset": preset_key,
+            "design_preset": self.design_preset_combo.currentData() or "custom",
+            "layout_template": self.layout_template_combo.currentData()
+            or "classic_topo",
+            "palette_key": self.palette_combo.currentData()
+            or CARTOGRAPHY_PRESETS[preset_key]["palette"],
+            "font_family": resolved_font.family,
+            "requested_font": resolved_font.requested,
+            "font_substituted": resolved_font.substituted,
             "create_layout": self.create_layout_check.isChecked(),
             "layout_name": self.layout_name_edit.text().strip(),
             "title": self.map_title_edit.text().strip(),
@@ -1212,6 +1699,9 @@ class TerrainStudioDock(QDockWidget):
             "author": self.map_author_edit.text().strip(),
             "source": self.map_source_edit.text().strip(),
             "grid": self.grid_check.isChecked(),
+            "grid_mode": self.grid_mode_combo.currentData() or "map_crs",
+            "grid_custom_crs": self.grid_custom_edit.text().strip(),
+            "show_legend": self.legend_check.isChecked(),
             "open_layout": self.open_layout_check.isChecked(),
             "export_pdf": self.export_pdf_check.isChecked(),
             "export_png": self.export_png_check.isChecked(),
@@ -1220,10 +1710,31 @@ class TerrainStudioDock(QDockWidget):
             "orientation": self.orientation_combo.currentData() or "auto",
             "export_prefix": sanitize_prefix(self.prefix_edit.text()),
             "create_project": self.create_project_check.isChecked(),
+            "create_share_manifest": self.share_manifest_check.isChecked(),
             "create_hydrology": self.hydrology_check.isChecked(),
             "stream_threshold_ha": self.stream_threshold.value(),
             "create_basins": self.basins_check.isChecked(),
+            "contour_interval": self.contour_interval.value(),
+            "index_multiplier": self.index_multiplier.value(),
+            "z_unit": "m" if self.z_unit_combo.currentIndex() == 0 else "ft",
         }
+        if (
+            self.layout_extent_combo.currentData() == "canvas"
+            and self.iface
+            and self.iface.mapCanvas()
+        ):
+            canvas = self.iface.mapCanvas()
+            extent = canvas.extent()
+            config["layout_extent"] = [
+                extent.xMinimum(),
+                extent.yMinimum(),
+                extent.xMaximum(),
+                extent.yMaximum(),
+            ]
+            config["layout_extent_crs"] = (
+                canvas.mapSettings().destinationCrs().authid()
+            )
+        return config
 
     def run(self):
         if self.task_controller.active:
@@ -1322,9 +1833,14 @@ class TerrainStudioDock(QDockWidget):
             config["preset"],
             config["font_family"],
             return_layers=True,
+            palette_key=config.get("palette_key"),
         )
         self._last_layout_layers = layers
         self.create_layout_button.setEnabled(bool(layers))
+        self.create_all_layouts_button.setEnabled(
+            bool(layers) and self.create_layout_check.isChecked()
+        )
+        self._update_recipe_inspector()
         report_path = str(final_results.get("REPORT", ""))
         self.report_edit.appendPlainText(
             f"\n{self.tr('Finished. Loaded')} {loaded} {self.tr('layers into project.')}\n{self.tr('Report')}: {report_path}"
@@ -1332,25 +1848,74 @@ class TerrainStudioDock(QDockWidget):
         if failed:
             self.report_edit.appendPlainText(f"{self.tr('Failed to load')}:\n" + "\n".join(failed))
 
+        # Export one reusable QML set per selected Style Pack.  This preserves
+        # the numeric DEM while still making its cartography portable outside
+        # the generated QGZ project.
+        style_configs = self._queued_or_current_layout_configs()
+        if not self.layout_queue.count():
+            style_configs = [dict(config)]
+        exported_style_presets = set()
+        for style_config in style_configs:
+            preset_key = style_config.get("preset", DEFAULT_CARTOGRAPHY)
+            if preset_key in exported_style_presets:
+                continue
+            exported_style_presets.add(preset_key)
+            ordered_keys, _notes = inspect_layer_recipe(layers.keys(), preset_key)
+            try:
+                qml_paths, qml_warnings = export_style_pack_qml(
+                    layers,
+                    ordered_keys,
+                    style_config,
+                    self.output_edit.text().strip(),
+                )
+                for layer_key, qml_path in qml_paths.items():
+                    final_results[f"STYLE_{preset_key}_{layer_key}"] = qml_path
+                if qml_paths:
+                    self.report_edit.appendPlainText(
+                        f"Style Pack QML ({preset_key}): "
+                        + ", ".join(qml_paths.values())
+                    )
+                if qml_warnings:
+                    self.report_edit.appendPlainText(
+                        "Style warnings: " + " | ".join(qml_warnings)
+                    )
+            except Exception as error:
+                self.report_edit.appendPlainText(
+                    f"Style Pack export error ({preset_key}): {error}"
+                )
+
         layout_message = ""
+        created_layout_names = []
         if config.get("create_layout"):
             north_arrow = os.path.join(
                 os.path.dirname(__file__), "icons", "north_arrow_classic.svg"
             )
             try:
-                layout, exported = create_terrain_layout(
+                layout_configs = self._queued_or_current_layout_configs()
+                if not self.layout_queue.count():
+                    layout_configs = [dict(config)]
+                layouts, exported = create_terrain_layouts(
                     QgsProject.instance(),
                     layers,
                     self.output_edit.text().strip(),
-                    config,
+                    layout_configs,
                     north_arrow,
                 )
-                layout_message = f" {self.tr('Created layout')} '{layout.name()}'."
-                self.report_edit.appendPlainText(f"Layout: {layout.name()}")
+                layout_message = (
+                    f" {self.tr('Created layout')} "
+                    + ", ".join(f"'{layout.name()}'" for layout in layouts)
+                    + "."
+                )
+                self.report_edit.appendPlainText(
+                    "Layouts: " + ", ".join(layout.name() for layout in layouts)
+                )
+                created_layout_names = [layout.name() for layout in layouts]
                 if exported:
                     self.report_edit.appendPlainText(f"{self.tr('Exported')}:\n" + "\n".join(exported))
-                if config.get("open_layout"):
-                    self.iface.openLayoutDesigner(layout)
+                    for export_index, export_path in enumerate(exported, 1):
+                        final_results[f"LAYOUT_EXPORT_{export_index}"] = export_path
+                if config.get("open_layout") and layouts:
+                    self.iface.openLayoutDesigner(layouts[-1])
             except Exception as error:  # keep generated terrain products available
                 self.report_edit.appendPlainText(f"{self.tr('Layout error')}: {error}")
 
@@ -1360,6 +1925,7 @@ class TerrainStudioDock(QDockWidget):
                     os.path.join(self.output_edit.text().strip(), f"{prefix}.qgz")
                 )
                 if QgsProject.instance().write(project_path):
+                    final_results["QGIS_PROJECT"] = project_path
                     self.report_edit.appendPlainText(
                         f"{self.tr('QGIS project')}: {project_path}"
                     )
@@ -1370,6 +1936,23 @@ class TerrainStudioDock(QDockWidget):
             except Exception as error:
                 self.report_edit.appendPlainText(
                     f"{self.tr('QGIS project save error')}: {error}"
+                )
+
+        if config.get("create_share_manifest", True):
+            try:
+                share_path = write_share_manifest(
+                    self.output_edit.text().strip(),
+                    prefix,
+                    final_results,
+                    config,
+                    created_layout_names,
+                )
+                self.report_edit.appendPlainText(
+                    f"{self.tr('Share manifest')}: {share_path}"
+                )
+            except Exception as error:
+                self.report_edit.appendPlainText(
+                    f"{self.tr('Share manifest error')}: {error}"
                 )
 
         # Activate 3D Web Viewer & Intelligence Report buttons if generated

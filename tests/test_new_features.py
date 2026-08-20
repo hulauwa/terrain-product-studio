@@ -11,6 +11,7 @@ try:
 
     from terrain_product_studio.core.intelligence_report import generate_intelligence_report
     from terrain_product_studio.core.native_hydrology import calculate_complete_hydrology
+    from terrain_product_studio.core.preprocessing import DemPreprocessor
     from terrain_product_studio.core.thematic_terrain import (
         calculate_landslide_hazard,
         calculate_slope_suitability,
@@ -132,6 +133,32 @@ def run_all_tests():
 class NewFeaturesIntegrationTests(unittest.TestCase):
     def test_complete_product_chain(self):
         run_all_tests()
+
+    def test_portable_canonical_dem_copy(self):
+        tmp_dir = tempfile.mkdtemp(prefix="tps_portable_dem_")
+        try:
+            source = os.path.join(tmp_dir, "source.tif")
+            destination = os.path.join(tmp_dir, "portable.tif")
+            create_synthetic_dem(source, width=24, height=18)
+            preprocessor = DemPreprocessor(
+                run_child=lambda *_args, **_kwargs: {},
+                output_path=lambda *_args: destination,
+                extent_resolver=lambda *_args: None,
+                advance=lambda *_args: None,
+                feedback=None,
+                creation_options="COMPRESS=DEFLATE|TILED=YES|BIGTIFF=IF_SAFER",
+                prefix="portable_test",
+            )
+            result = preprocessor.create_portable_copy(source, destination, 1)
+            self.assertEqual(result, destination)
+            copied = gdal.Open(destination, gdal.GA_ReadOnly)
+            self.assertIsNotNone(copied)
+            self.assertEqual((copied.RasterXSize, copied.RasterYSize), (24, 18))
+            self.assertEqual(copied.RasterCount, 1)
+            self.assertEqual(copied.GetRasterBand(1).GetNoDataValue(), -9999.0)
+            copied = None
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

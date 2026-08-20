@@ -14,6 +14,7 @@ from .styles import (
     apply_basin_style,
     apply_contour_style,
     apply_curvature_style,
+    apply_dem_style,
     apply_flow_accumulation_style,
     apply_geomorphon_style,
     apply_hillshade_style,
@@ -58,6 +59,7 @@ def add_terrain_results(
     cartography_preset="usgs_classic",
     font_family=None,
     return_layers=False,
+    palette_key=None,
 ):
     """Add algorithm result paths and return ``(loaded_count, failed_paths)``."""
 
@@ -114,7 +116,9 @@ def add_terrain_results(
         "STI": hydro_group,
         "MULTIHAZARD": analysis_group,
         "FILLED_DEM": quality_group,
-        "WORKING_DEM": quality_group,
+        # The numeric DEM is now the canonical styled basemap.  It contains
+        # the analytical elevation values and replaces the default RGB copy.
+        "WORKING_DEM": base_group,
     }
     for key, group in raster_groups.items():
         if key not in results:
@@ -224,6 +228,10 @@ def add_terrain_results(
     if "COLOR_RELIEF" in nodes:
         base_group.insertChildNode(len(base_group.children()), nodes["COLOR_RELIEF"].clone())
         base_group.removeChildNode(nodes["COLOR_RELIEF"])
+    if "WORKING_DEM" in layers:
+        apply_dem_style(
+            layers["WORKING_DEM"], cartography_preset, palette_key
+        )
     for key in ("HILLSHADE", "MULTI_HILLSHADE"):
         if key in layers:
             if hillshade_opacity is None:

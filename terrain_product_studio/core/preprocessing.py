@@ -157,6 +157,37 @@ class DemPreprocessor:
             warnings=warnings,
         )
 
+    def create_portable_copy(self, input_path, output_path, band_number):
+        """Copy the canonical DEM into the package as a tiled GeoTIFF.
+
+        Keeping all GDAL translation in the preprocessing service avoids
+        leaking raster-driver details into the master workflow and gives the
+        portable-copy path the same creation options as clipping/reprojection.
+        """
+
+        try:
+            options = gdal.TranslateOptions(
+                format="GTiff",
+                bandList=[int(band_number)],
+                creationOptions=self.creation_options.split("|"),
+            )
+            dataset = gdal.Translate(output_path, input_path, options=options)
+        except Exception as error:
+            raise QgsProcessingException(
+                self.tr("Could not create the portable canonical DEM: ")
+                + str(error)
+            ) from error
+        if dataset is None:
+            raise QgsProcessingException(
+                self.tr("Could not create the portable canonical DEM.")
+            )
+        dataset = None
+        if not os.path.exists(output_path):
+            raise QgsProcessingException(
+                self.tr("Portable canonical DEM was not written to disk.")
+            )
+        return output_path
+
     def _clip(self, processing_input, source, clipped_rect):
         warnings = []
         clipped_path = self.output_path("clipped_roi", "tif")

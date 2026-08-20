@@ -2,8 +2,17 @@ from __future__ import annotations
 import json
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from osgeo import gdal, ogr, osr
+
+from .presets import TERRAIN_PALETTES
+
+
+def _web_palette(palette_key: str) -> list[str]:
+    palette = TERRAIN_PALETTES.get(palette_key, TERRAIN_PALETTES["natural"])
+    stops = palette.get("elev_stops") or palette.get("stops") or ()
+    return [f"#{int(red):02x}{int(green):02x}{int(blue):02x}" for _, red, green, blue in stops]
 
 def _resample_band(path: str | None, gw: int, gh: int, nodata_fill: float = 0.0) -> list[list[float]] | None:
     if not path or not os.path.exists(path):
@@ -36,10 +45,17 @@ def _extract_linestring_pts(geom, bounds_x, bounds_y, dx, dy) -> list[list[list[
         return res
     pts = []
     pcount = geom.GetPointCount()
-    for i in range(pcount):
+    # Huge contour datasets can otherwise dominate HTML size and browser
+    # startup.  Keep endpoints and a bounded, evenly sampled visual copy; the
+    # source vector remains untouched and can still be loaded directly.
+    stride = max(1, int(math.ceil(pcount / 1600.0)))
+    indexes = list(range(0, pcount, stride))
+    if pcount and (not indexes or indexes[-1] != pcount - 1):
+        indexes.append(pcount - 1)
+    for i in indexes:
         gx, gy = geom.GetX(i), geom.GetY(i)
         nx = ((gx - bounds_x[0]) / dx - 0.5) * 100.0
-        ny = ((gy - bounds_y[0]) / dy - 0.5) * 100.0
+        ny = ((gy - bounds_y[0]) / dy - 0.5) * (100.0 * dy / dx)
         pts.append([round(nx, 2), round(ny, 2)])
     return [pts] if len(pts) >= 2 else []
 
@@ -258,6 +274,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
   <!-- JSON Data Block -->
   <script id="terrain-data" type="application/json">@@TERRAIN_DATA@@</script>
 </head>
@@ -384,6 +401,14 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     
     <!-- Data Tab -->
     <div class="tab-content" id="tab-data">
+      <div class="control-group">
+        <label class="control-label">Load source data directly</label>
+        <label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:5px;">GeoTIFF / COG DEM</label>
+        <input type="file" id="file-dem" accept=".tif,.tiff,image/tiff" style="width:100%;font-size:11px;margin-bottom:9px;" />
+        <label style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:5px;">Contours / streams GeoJSON</label>
+        <input type="file" id="file-geojson" accept=".geojson,.json,application/geo+json" multiple style="width:100%;font-size:11px;" />
+        <div id="data-load-status" style="font-size:11px;color:var(--accent);margin-top:8px;line-height:1.4;">Embedded preview is active. Local files are loaded only after you select them.</div>
+      </div>
       <div class="control-group">
         <label class="control-label">Terrain Statistics</label>
         <table class="data-table" id="data-stats"></table>
@@ -616,7 +641,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     
     // Palettes
     const PALETTES = {
-      topo: ['#2b83ba', '#abdda4', '#ffffbf', '#fdae61', '#d7191c'],
+      topo: CFG.topo_palette,
       slope: ['#1a9850', '#a6d96a', '#ffffbf', '#fdae61', '#d73027'],
       twi: ['#d7191c', '#fdae61', '#ffffbf', '#abd9e9', '#2c7bb6'],
       suitability: ['#1a9850', '#91cf60', '#d9ef8b', '#fee08b', '#fc8d59'],
@@ -635,8 +660,9 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     
     // Mesh
     const GW = CFG.gw, GH = CFG.gh;
-    const Z_SPAN = Math.max(1.0, CFG.max_z - CFG.min_z);
-    const planeGeom = new THREE.PlaneGeometry(100, 100 * (GH / GW), GW - 1, GH - 1);
+    let WORLD_H = CFG.world_height;
+    let Z_SPAN = Math.max(1.0, CFG.max_z - CFG.min_z);
+    let planeGeom = new THREE.PlaneGeometry(100, WORLD_H, GW - 1, GH - 1);
     let currentExag = 1.5;
     let currentLayer = "topo";
     
@@ -680,11 +706,23 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     scene.add(terrainMesh);
     
     // Flood
-    const floodGeom = new THREE.PlaneGeometry(100, 100 * (GH / GW), 32, 32);
+    let floodGeom = new THREE.PlaneGeometry(100, WORLD_H, 32, 32);
     const floodMat = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.7, roughness: 0.1, metalness: 0.5 });
     const floodMesh = new THREE.Mesh(floodGeom, floodMat);
     floodMesh.visible = false;
     scene.add(floodMesh);
+
+    function replaceTerrainGeometry(worldHeight) {
+      WORLD_H = Math.max(1.0, worldHeight);
+      planeGeom.dispose();
+      planeGeom = new THREE.PlaneGeometry(100, WORLD_H, GW - 1, GH - 1);
+      terrainMesh.geometry = planeGeom;
+      floodGeom.dispose();
+      floodGeom = new THREE.PlaneGeometry(100, WORLD_H, 32, 32);
+      floodMesh.geometry = floodGeom;
+      updateMeshColors();
+      updateMeshHeights();
+    }
     
     // Overlays
     const riverGroup = new THREE.Group();
@@ -693,7 +731,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       const col = riv.order >= 4 ? 0x1e3a8a : (riv.order === 3 ? 0x1d4ed8 : (riv.order === 2 ? 0x2563eb : 0x60a5fa));
       riv.pts.forEach(p => {
         const cu = Math.max(0, Math.min(GW - 1, Math.round((p[0]/100+0.5)*(GW-1))));
-        const cv = Math.max(0, Math.min(GH - 1, Math.round((p[1]/(100*(GH/GW))+0.5)*(GH-1))));
+        const cv = Math.max(0, Math.min(GH - 1, Math.round((0.5-p[1]/WORLD_H)*(GH-1))));
         const zNorm = (CFG.elev_grid[cv][cu] - CFG.min_z) / Z_SPAN;
         pts.push(new THREE.Vector3(p[0], p[1], zNorm * 25.0 * currentExag + 0.3));
       });
@@ -717,6 +755,92 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       peakGroup.add(cone);
     });
     scene.add(peakGroup);
+
+    function geoToWorld(coord) {
+      const x = ((coord[0] - CFG.min_x) / Math.max(1e-12, CFG.max_x - CFG.min_x) - 0.5) * 100;
+      const y = ((coord[1] - CFG.min_y) / Math.max(1e-12, CFG.max_y - CFG.min_y) - 0.5) * WORLD_H;
+      const cu = Math.max(0, Math.min(GW - 1, Math.round((x / 100 + 0.5) * (GW - 1))));
+      const cv = Math.max(0, Math.min(GH - 1, Math.round((0.5 - y / WORLD_H) * (GH - 1))));
+      const z = ((CFG.elev_grid[cv][cu] - CFG.min_z) / Z_SPAN) * 25.0 * currentExag + 0.35;
+      return new THREE.Vector3(x, y, z);
+    }
+
+    function geometryLines(geometry) {
+      if (!geometry) return [];
+      if (geometry.type === 'LineString') return [geometry.coordinates];
+      if (geometry.type === 'MultiLineString') return geometry.coordinates;
+      if (geometry.type === 'FeatureCollection') return geometry.features.flatMap(f => geometryLines(f.geometry));
+      return [];
+    }
+
+    document.getElementById('file-dem').addEventListener('change', async event => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const status = document.getElementById('data-load-status');
+      try {
+        status.textContent = 'Reading GeoTIFF…';
+        const tiff = await GeoTIFF.fromBlob(file);
+        const image = await tiff.getImage();
+        const rasters = await image.readRasters({width: GW, height: GH, resampleMethod: 'bilinear'});
+        const values = rasters[0];
+        const noData = image.getGDALNoData();
+        let low = Infinity, high = -Infinity;
+        const rows = [];
+        for (let row = 0; row < GH; row++) {
+          const line = [];
+          for (let col = 0; col < GW; col++) {
+            const value = Number(values[row * GW + col]);
+            const valid = Number.isFinite(value) && (noData === null || value !== noData);
+            if (valid) { low = Math.min(low, value); high = Math.max(high, value); }
+            line.push(valid ? value : null);
+          }
+          rows.push(line);
+        }
+        if (!Number.isFinite(low) || !Number.isFinite(high)) throw new Error('DEM contains no valid values');
+        rows.forEach(line => line.forEach((value, index) => { if (value === null) line[index] = low; }));
+        CFG.elev_grid = rows;
+        CFG.min_z = low;
+        CFG.max_z = high > low ? high : low + 1;
+        Z_SPAN = Math.max(1.0, CFG.max_z - CFG.min_z);
+        try {
+          const bbox = image.getBoundingBox();
+          CFG.min_x = bbox[0]; CFG.min_y = bbox[1]; CFG.max_x = bbox[2]; CFG.max_y = bbox[3];
+          replaceTerrainGeometry(100 * (CFG.max_y - CFG.min_y) / Math.max(1e-12, CFG.max_x - CFG.min_x));
+        } catch (_bboxError) {
+          updateMeshColors(); updateMeshHeights();
+        }
+        status.textContent = `Loaded ${file.name} directly at ${GW} × ${GH} display samples.`;
+      } catch (error) {
+        status.textContent = `Could not load DEM: ${error.message || error}`;
+      }
+    });
+
+    document.getElementById('file-geojson').addEventListener('change', async event => {
+      const files = Array.from(event.target.files || []);
+      const status = document.getElementById('data-load-status');
+      let added = 0;
+      for (const file of files) {
+        try {
+          const data = JSON.parse(await file.text());
+          const features = data.type === 'FeatureCollection' ? data.features : [{geometry: data, properties: {}}];
+          for (const feature of features) {
+            const isContour = feature.properties && (feature.properties.ELEV !== undefined || feature.properties.elev !== undefined);
+            const target = isContour ? contourGroup : riverGroup;
+            const material = new THREE.LineBasicMaterial({color: isContour ? 0xa16207 : 0x38bdf8, transparent: true, opacity: 0.85});
+            for (const line of geometryLines(feature.geometry)) {
+              const points = line.map(geoToWorld);
+              if (points.length > 1) {
+                target.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), material));
+                added++;
+              }
+            }
+          }
+        } catch (error) {
+          status.textContent = `Could not load ${file.name}: ${error.message || error}`;
+        }
+      }
+      if (added) status.textContent = `Loaded ${added} GeoJSON line features in the DEM coordinate system.`;
+    });
     
     const gridHelper = new THREE.GridHelper(100, 10, 0x334155, 0x1e293b);
     gridHelper.rotation.x = Math.PI/2;
@@ -735,7 +859,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         const riv = CFG.rivers_3d[i];
         riv.pts.forEach((p, pi) => {
           const cu = Math.max(0, Math.min(GW-1, Math.round((p[0]/100+0.5)*(GW-1))));
-          const cv = Math.max(0, Math.min(GH-1, Math.round((p[1]/(100*(GH/GW))+0.5)*(GH-1))));
+          const cv = Math.max(0, Math.min(GH-1, Math.round((0.5-p[1]/WORLD_H)*(GH-1))));
           pts.setZ(pi, ((CFG.elev_grid[cv][cu]-CFG.min_z)/Z_SPAN) * 25.0 * currentExag + 0.3);
         });
         pts.needsUpdate = true;
@@ -879,7 +1003,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       if (intersects.length > 0) {
         inspCard.classList.add('visible');
         const pt = intersects[0].point;
-        const u = (pt.x/100+0.5)*(GW-1), v = (pt.y/(100*(GH/GW))+0.5)*(GH-1);
+        const u = (pt.x/100+0.5)*(GW-1), v = (0.5-pt.y/WORLD_H)*(GH-1);
         const cu = Math.max(0, Math.min(GW-1, Math.round(u))), cv = Math.max(0, Math.min(GH-1, Math.round(v)));
         
         document.getElementById('insp-z').textContent = CFG.elev_grid[cv][cu].toFixed(1) + ' m';
@@ -887,7 +1011,9 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         document.getElementById('insp-twi').textContent = CFG.twi_grid ? CFG.twi_grid[cv][cu].toFixed(1) : '--';
         document.getElementById('insp-suit').textContent = CFG.suit_grid ? CFG.suit_grid[cv][cu] : '--';
         document.getElementById('insp-hazard').textContent = CFG.hazard_grid ? CFG.hazard_grid[cv][cu] : '--';
-        document.getElementById('insp-coords').textContent = `X: ${(CFG.center_lon + (cu-GW/2)*0.0001).toFixed(4)} Y: ${(CFG.center_lat - (cv-GH/2)*0.0001).toFixed(4)}`;
+        const gx = CFG.min_x + (cu / Math.max(1, GW - 1)) * (CFG.max_x - CFG.min_x);
+        const gy = CFG.max_y - (cv / Math.max(1, GH - 1)) * (CFG.max_y - CFG.min_y);
+        document.getElementById('insp-coords').textContent = `X: ${gx.toFixed(2)} Y: ${gy.toFixed(2)}`;
       } else {
         inspCard.classList.remove('visible');
       }
@@ -899,7 +1025,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       const intersects = raycaster.intersectObject(terrainMesh);
       if (intersects.length > 0) {
         const pt = intersects[0].point;
-        const u = (pt.x/100+0.5)*(GW-1), v = (pt.y/(100*(GH/GW))+0.5)*(GH-1);
+        const u = (pt.x/100+0.5)*(GW-1), v = (0.5-pt.y/WORLD_H)*(GH-1);
         const cu = Math.max(0, Math.min(GW-1, Math.round(u))), cv = Math.max(0, Math.min(GH-1, Math.round(v)));
         
         if (!ptA) {
@@ -943,7 +1069,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     window.addEventListener('resize', () => {
       const aspect = window.innerWidth / window.innerHeight;
       persCamera.aspect = aspect; persCamera.updateProjectionMatrix();
-      orthoCamera.left = frustumSize * aspect / -2; orthoCamera.right = frustumSize * aspect / -2;
+      orthoCamera.left = frustumSize * aspect / -2; orthoCamera.right = frustumSize * aspect / 2;
       orthoCamera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
@@ -969,8 +1095,9 @@ def generate_3d_web_viewer(
     twi_path: str | None = None,
     suitability_path: str | None = None,
     hazard_path: str | None = None,
-    grid_size: int = 240,
+    grid_size: int = 384,
     band_number: int = 1,
+    palette_key: str = "natural",
 ) -> str:
     """Generate a self-contained 3D WebGIS Studio HTML file with multi-layer overlays and comprehensive analytical tools."""
     clean_path = str(dem_path).split("|")[0].strip('"').strip("'")
@@ -986,9 +1113,9 @@ def generate_3d_web_viewer(
     proj = ds.GetProjection() or "Projected Coordinates"
     nodata = band.GetNoDataValue()
 
-    gw = grid_size
-    gh = int(round(grid_size * (orig_h / max(1, orig_w))))
-    gh = max(40, min(gh, grid_size * 2))
+    gw = max(40, min(int(grid_size), 768, orig_w))
+    gh = int(round(gw * (orig_h / max(1, orig_w))))
+    gh = max(40, min(gh, int(grid_size) * 2, orig_h))
 
     dem_data = band.ReadAsArray(buf_xsize=gw, buf_ysize=gh, resample_alg=gdal.GRIORA_Bilinear).astype(np.float32, copy=False)
     valid = np.isfinite(dem_data)
@@ -1006,10 +1133,26 @@ def generate_3d_web_viewer(
     clean_elev = np.nan_to_num(clean_elev, nan=min_z, posinf=max_z, neginf=min_z)
     elev_grid = clean_elev.round(1).tolist()
 
-    slope_grid = _resample_band(slope_path, gw, gh, 0.0)
-    twi_grid = _resample_band(twi_path, gw, gh, 0.0)
-    suit_grid = _resample_band(suitability_path, gw, gh, 0.0)
-    hazard_grid = _resample_band(hazard_path, gw, gh, 0.0)
+    # Each helper opens its own GDAL dataset, making these independent reads
+    # safe to overlap while the outer QGIS Processing task remains cancellable.
+    raster_jobs = {
+        "slope": slope_path,
+        "twi": twi_path,
+        "suitability": suitability_path,
+        "hazard": hazard_path,
+    }
+    raster_grids = {}
+    with ThreadPoolExecutor(max_workers=min(4, max(1, os.cpu_count() or 1))) as pool:
+        futures = {
+            key: pool.submit(_resample_band, path, gw, gh, 0.0)
+            for key, path in raster_jobs.items()
+        }
+        for key, future in futures.items():
+            raster_grids[key] = future.result()
+    slope_grid = raster_grids["slope"]
+    twi_grid = raster_grids["twi"]
+    suit_grid = raster_grids["suitability"]
+    hazard_grid = raster_grids["hazard"]
 
     slope_mean = float(np.mean(np.array(slope_grid))) if slope_grid else 0.0
     slope_max = float(np.max(np.array(slope_grid))) if slope_grid else 0.0
@@ -1023,6 +1166,7 @@ def generate_3d_web_viewer(
     bounds_y = min(min_y, max_y), max(min_y, max_y)
     dx = max(1e-6, bounds_x[1] - bounds_x[0])
     dy = max(1e-6, bounds_y[1] - bounds_y[0])
+    world_height = 100.0 * dy / dx
 
     pixel_x_m = abs(gt[1])
     pixel_y_m = abs(gt[5])
@@ -1107,7 +1251,7 @@ def generate_3d_web_viewer(
                     if geom is None: continue
                     gx, gy = geom.GetX(), geom.GetY()
                     nx = ((gx - bounds_x[0]) / dx - 0.5) * 100.0
-                    ny = ((gy - bounds_y[0]) / dy - 0.5) * 100.0
+                    ny = ((gy - bounds_y[0]) / dy - 0.5) * world_height
                     elev_val = feat.GetField("ELEV") if feat.GetFieldIndex("ELEV") >= 0 else 0.0
                     label_val = feat.GetField("LABEL") if feat.GetFieldIndex("LABEL") >= 0 else f"{int(elev_val)}m"
                     peaks_3d.append({
@@ -1138,6 +1282,11 @@ def generate_3d_web_viewer(
         "total_area_ha": float(total_area_ha),
         "center_lat": float(center_lat),
         "center_lon": float(center_lon),
+        "min_x": float(bounds_x[0]),
+        "max_x": float(bounds_x[1]),
+        "min_y": float(bounds_y[0]),
+        "max_y": float(bounds_y[1]),
+        "world_height": float(world_height),
         "proj_name": str(proj[:50] + "..." if len(proj)>50 else proj),
         "elev_grid": elev_grid,
         "slope_grid": slope_grid,
@@ -1151,6 +1300,7 @@ def generate_3d_web_viewer(
         "contour_count": len(contours_3d),
         "peaks_3d": peaks_3d,
         "peak_count": len(peaks_3d),
+        "topo_palette": _web_palette(palette_key),
     }
 
     # HTML content without any python f-strings in JS code

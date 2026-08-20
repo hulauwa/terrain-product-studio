@@ -561,7 +561,7 @@ INDUSTRY_PRESETS = {
         (
             "CREATE_SUITABILITY",
             "CREATE_CONTOURS",
-            "CREATE_COLOR_RELIEF",
+            "CREATE_MULTI_HILLSHADE",
             "CREATE_SLOPE",
             "CREATE_LANDSLIDE",
         ),
@@ -573,7 +573,7 @@ INDUSTRY_PRESETS = {
             "CREATE_TWI",
             "CREATE_SPI",
             "CREATE_STI",
-            "CREATE_COLOR_RELIEF",
+            "CREATE_MULTI_HILLSHADE",
         ),
     ),
     "disaster": (

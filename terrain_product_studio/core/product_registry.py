@@ -171,9 +171,9 @@ BUILTIN_PRODUCTS = (
         key="COLOR_RELIEF",
         parameter="CREATE_COLOR_RELIEF",
         processing_label="Elevation color relief",
-        ui_label="Elevation color relief",
+        ui_label="RGB color relief (compatibility copy)",
         category="cartography",
-        default_enabled=True,
+        default_enabled=False,
     ),
     ProductSpec(
         key="HILLSHADE",

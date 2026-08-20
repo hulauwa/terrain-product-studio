@@ -32,10 +32,13 @@ class MapRecipeTests(unittest.TestCase):
             ("SPOT_ELEVATIONS", "CONTOURS_SMOOTH", "MULTI_HILLSHADE", "COLOR_RELIEF"),
         )
 
-    def test_blueprint_is_a_linework_recipe(self):
+    def test_blueprint_keeps_linework_over_a_terrain_basemap(self):
         available = {"STREAMS", "CONTOURS", "MULTI_HILLSHADE", "COLOR_RELIEF"}
         keys = resolve_recipe_keys(available, "engineering_blueprint", target="canvas")
-        self.assertEqual(keys, ("STREAMS", "CONTOURS"))
+        self.assertEqual(
+            keys,
+            ("STREAMS", "CONTOURS", "MULTI_HILLSHADE", "COLOR_RELIEF"),
+        )
         self.assertEqual(recipe_for("engineering_blueprint").key, "engineering_blueprint")
 
 

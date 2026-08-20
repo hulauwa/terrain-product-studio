@@ -17,7 +17,10 @@ ROLE_VARIANTS: Mapping[str, Tuple[str, ...]] = {
     "ridges": ("RIDGES",),
     "contours": ("CONTOURS_SMOOTH", "CONTOURS"),
     "hillshade": ("MULTI_HILLSHADE", "HILLSHADE"),
-    "color_relief": ("COLOR_RELIEF",),
+    # Prefer the numeric DEM and render its palette in QGIS.  The physical RGB
+    # color-relief raster remains a compatibility fallback for older runs.
+    "dem_basemap": ("WORKING_DEM", "COLOR_RELIEF"),
+    "color_relief": ("WORKING_DEM", "COLOR_RELIEF"),
 }
 
 
@@ -32,14 +35,14 @@ class MapRecipe:
 
 DEFAULT_RECIPE = MapRecipe(
     key="default",
-    canvas_roles=("spot_elevations", "contours", "hillshade", "color_relief"),
+    canvas_roles=("spot_elevations", "contours", "hillshade", "dem_basemap"),
     layout_roles=(
         "spot_elevations",
         "streams",
         "ridges",
         "contours",
         "hillshade",
-        "color_relief",
+        "dem_basemap",
     ),
 )
 
@@ -47,13 +50,26 @@ DEFAULT_RECIPE = MapRecipe(
 MAP_RECIPES = {
     "engineering_blueprint": MapRecipe(
         key="engineering_blueprint",
-        canvas_roles=("spot_elevations", "streams", "contours"),
-        layout_roles=("spot_elevations", "streams", "ridges", "contours"),
+        canvas_roles=(
+            "spot_elevations",
+            "streams",
+            "contours",
+            "hillshade",
+            "dem_basemap",
+        ),
+        layout_roles=(
+            "spot_elevations",
+            "streams",
+            "ridges",
+            "contours",
+            "hillshade",
+            "dem_basemap",
+        ),
     ),
     "minimal_contours": MapRecipe(
         key="minimal_contours",
-        canvas_roles=("spot_elevations", "streams", "contours"),
-        layout_roles=("spot_elevations", "streams", "contours"),
+        canvas_roles=("spot_elevations", "streams", "contours", "dem_basemap"),
+        layout_roles=("spot_elevations", "streams", "contours", "dem_basemap"),
     ),
 }
 
