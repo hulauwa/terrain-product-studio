@@ -32,6 +32,7 @@
 - **Bảo toàn dữ liệu gốc (Zero Data Distortion)**: Các lớp raster phân tích (Slope, Aspect, TRI, TWI...) lưu giữ nguyên vẹn giá trị vật lý thực tế (độ, radian, mét, chỉ số), phục vụ tính toán không gian chính xác.
 - **Trợ lý thiết lập thông minh (Smart Setup)**: Tự đề xuất khoảng cao đều theo tỷ lệ bản đồ và mức chênh cao (snap vào bảng chuẩn `1/2/2.5/5/10/20/25/50/100`), **thư viện 20 bảng màu** với preview gradient trực tiếp trên combo, nhóm **Dark Terrain** (6 thang màu tối thực thụ với mốc độ cao tuyệt đối, tự chuyển sang theme Night Dark), theme **Dark / Night** kèm swatch xem trước.
 - **Mạng sông suối đa điểm liên tục (Continuous Polyline)**: Thuật toán dò tuyến thủy văn D8 nối liền các pixel thành các đường sông suối mượt mà với bảng thuộc tính phong phú (`ORDER`, `LENGTH_M`, `AREA_HA`) — hỗ trợ làm trơn Chaikin / đơn giản hóa Douglas–Peucker.
+- **Pipeline một chạm đúng dependency**: DEM chỉ preprocess một lần; hydrology chạy trước SPI/STI/sạt lở/đa hiểm họa; slope và TWI được tự bật có khai báo. Không dùng accumulation cache hoặc slope làm drainage proxy.
 - **Chỉ số đa hiểm họa & Gói GeoPackage**: Chỉ số tổng hợp có trọng số (sạt lở × độ dốc × TWI) và gộp **toàn bộ sản phẩm raster + vector vào một file `.gpkg` duy nhất** để chia sẻ (raster byte nén PNG không mất dữ liệu, raster float theo chuẩn OGC 2D-gridded-coverage).
 - **In 3D & Tự động hóa quy trình**: Xuất mesh STL/OBJ (tự giảm độ phân giải, phóng đại độ cao, đế đặc kín nước), preset theo ngành (Đô thị / Nông nghiệp / Thiên tai / Khai khoáng) một chạm, nhật ký lịch sử 20 lần chạy gần nhất, và **xuất project QGIS (.qgz)** — lưu toàn bộ lớp, style, nhóm lớp và layout vào thư mục đầu ra.
 - **3D WebGIS Studio độc lập (`.html`)**: Trực quan hóa địa hình 3D mượt mà trên trình duyệt, tích hợp mô phỏng ngập lụt, cắt mặt cắt A $\rightarrow$ B trực tiếp, đổ bóng mặt trời theo giờ thực và trợ lý AI trả lời câu hỏi địa hình.
@@ -149,13 +150,13 @@ Xuất ra file HTML tổng hợp (`<prefix>_topographic_intelligence_report.html
 ## 🚀 Hướng Dẫn Cài Đặt
 
 ### Cách 1: Cài đặt qua file ZIP (Khuyến nghị)
-1. Tải file `terrain_product_studio-2.1.1.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Tải file `terrain_product_studio-2.2.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Trong QGIS, vào menu **Plugins (Tiện ích)** $\rightarrow$ **Manage and Install Plugins... (Quản lý và Cài đặt Tiện ích...)**.
 3. Chọn tab **Install from ZIP (Cài đặt từ ZIP)** $\rightarrow$ Chọn file `.zip` vừa tải $\rightarrow$ Nhấn **Install Plugin**.
 
 > **Không cài** file từ nút **Code → Download ZIP** của GitHub. File đó bọc cả repository nên QGIS không tìm thấy `metadata.txt` đúng vị trí. Hãy dùng file ZIP có phiên bản trong mục **Releases**.
 
-> **v2.1.1**: bản ổn định — bỏ cờ experimental, sửa layout trên QGIS 3.x, kiểm tra cấu trúc ZIP trước khi phát hành, ưu tiên lớp đã làm trơn và thêm hai kiểu bản đồ sáng tạo.
+> **v2.2.0**: bản sửa tính đúng đắn pipeline — hydrology chạy trong master DAG trước mọi sản phẩm phụ thuộc dòng chảy; dependency được ghi rõ, bỏ accumulation cũ/slope proxy và manifest cuối mô tả đầy đủ gói kết quả.
 
 ### Cách 2: Sao chép thủ công vào thư mục Plugins của QGIS
 Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng với hệ điều hành:

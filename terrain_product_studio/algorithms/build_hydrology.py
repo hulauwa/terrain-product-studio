@@ -80,8 +80,8 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
         return self.tr(
             "Conditions a projected DEM using priority-flood, calculates deterministic D8 flow, "
             "and creates filled DEM, direction, accumulation, basin, TWI, and continuous Strahler "
-            "stream network polylines. For stability this is a separate algorithm; the dock chains it "
-            "automatically after the terrain package."
+            "stream network polylines. It can run independently, while the master package invokes "
+            "it after shared preprocessing and before flow-dependent products."
         )
 
     def createInstance(self):
@@ -249,7 +249,7 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
             )
         )
         try:
-            summary = calculate_complete_hydrology(
+            hydrology_summary = calculate_complete_hydrology(
                 input_dem_path=source.source().split("|")[0],
                 band_number=band,
                 filled_dem_path=paths[self.FILLED_DEM],
@@ -270,6 +270,13 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
             if not os.path.exists(path):
                 raise QgsProcessingException(self.tr(f"Hydrology output '{key}' was not created."))
             outputs[key] = path
+        if hydrology_summary.get("stream_reaches", 0) == 0:
+            feedback.pushWarning(
+                self.tr(
+                    "No stream reaches met the selected contributing-area threshold; "
+                    "an empty stream layer was created and hydrology rasters remain valid."
+                )
+            )
 
         # Cartographic copy: Chaikin smoothing on the river polylines. The raw
         # D8 network stays untouched for hydrological calculations.
@@ -277,6 +284,7 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
         simplify_tolerance = self.parameterAsDouble(
             parameters, self.SIMPLIFY_TOLERANCE, context
         )
+        smoothing_summary = None
         if (smoothing_index > 0 or simplify_tolerance > 0) and os.path.exists(
             paths[self.STREAMS]
         ):
@@ -285,13 +293,13 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
             )
             feedback.pushInfo(self.tr("Smoothing river polylines for cartographic display…"))
             try:
-                summary = smooth_geometries(
+                smoothing_summary = smooth_geometries(
                     paths[self.STREAMS],
                     smooth_path,
                     iterations=smoothing_index,
                     simplify_tolerance=simplify_tolerance,
                 )
-                if os.path.exists(smooth_path) and summary.get(
+                if os.path.exists(smooth_path) and smoothing_summary.get(
                     "smoothed_features", 0
                 ) > 0:
                     outputs[self.STREAMS_SMOOTH] = smooth_path
@@ -310,7 +318,8 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
             "minimum_contributing_area_ha": threshold_ha,
             "threshold_cells": threshold_cells,
             "pixel_area_m2": pixel_area_m2,
-            "summary": summary,
+            "summary": hydrology_summary,
+            "smoothing_summary": smoothing_summary,
             "note": (
                 "Potential drainage inferred from DEM topography; it is not a surveyed "
                 "hydrographic network."

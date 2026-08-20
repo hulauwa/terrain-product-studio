@@ -23,6 +23,7 @@ jobs:
           tests.test_math_utils
           tests.test_plugin_package
           tests.test_map_recipes
+          tests.test_pipeline
           tests.test_provenance -v
       - name: Build and validate installable ZIP
         run: python scripts/package_plugin.py

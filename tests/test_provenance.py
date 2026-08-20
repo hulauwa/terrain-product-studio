@@ -7,13 +7,13 @@ from terrain_product_studio.core.provenance import (
 
 
 class ProvenanceTests(unittest.TestCase):
-    def test_flow_proxy_is_disclosed(self):
+    def test_missing_flow_dependency_is_disclosed(self):
         notes = analytical_assumptions(
             {"LANDSLIDE_HAZARD"}, accumulation_supplied=False, smoothing_iterations=0
         )
         flow_note = next(note for note in notes if note["scope"] == "flow-dependent products")
-        self.assertIn("proxy", flow_note["method"])
-        self.assertIn("Screening only", flow_note["fitness_note"])
+        self.assertIn("No flow-accumulation", flow_note["method"])
+        self.assertIn("must not be generated", flow_note["fitness_note"])
 
     def test_preprocessing_records_reprojection_and_clip(self):
         provenance = build_run_provenance(

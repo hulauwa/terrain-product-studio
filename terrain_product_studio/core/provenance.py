@@ -31,14 +31,14 @@ def analytical_assumptions(
             {
                 "scope": "flow-dependent products",
                 "method": (
-                    "A supplied flow-accumulation raster is used."
+                    "A real flow-accumulation raster is used."
                     if accumulation_supplied
-                    else "Slope is used as a temporary accumulation proxy."
+                    else "No flow-accumulation raster was available."
                 ),
                 "fitness_note": (
                     "Suitable for the configured terrain-only screening workflow."
                     if accumulation_supplied
-                    else "Screening only; run hydrology first for hydrologically valid results."
+                    else "Flow-dependent products must not be generated in this state."
                 ),
             }
         )

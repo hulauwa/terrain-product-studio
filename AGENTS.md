@@ -21,6 +21,7 @@ dependencies outside a standard QGIS/GDAL installation.
 - `terrain_product_studio/algorithms/`: Processing-facing parameter and output
   contracts. Algorithms orchestrate reusable core services.
 - `terrain_product_studio/core/`: reusable domain modules.
+- `core/pipeline.py`: dependency planner for the one-click processing DAG.
 - `core/map_recipes.py`: logical canvas/layout stacks and raw/smooth selection.
 - `core/presets.py`: palette, cartography and industry data definitions.
 - `core/layers.py`, `core/styles.py`, `core/layouts.py`: QGIS presentation layer.
@@ -33,17 +34,16 @@ dependencies outside a standard QGIS/GDAL installation.
 ## Runtime flow
 
 1. The dock validates input and captures an immutable run configuration.
-2. `build_package` inspects/reprojects/clips the DEM and creates terrain products.
-3. `build_hydrology` creates filled DEM, D8 accumulation, streams and basins.
-4. Results are loaded/styled, a layout is composed, and optional exports are made.
-5. Every run writes a JSON report with provenance, assumptions, warnings and outputs.
+2. `core/pipeline.py` resolves requested, effective and auto-enabled dependencies.
+3. `build_package` inspects/reprojects/clips the DEM exactly once.
+4. Hydrology runs next when requested or required; it supplies real accumulation
+   and TWI before landslide, SPI, STI and multi-hazard calculations.
+5. Viewer/report exports use the complete result set, then the bundle is created.
+6. The final JSON manifest records the pipeline plan, provenance, assumptions,
+   warnings and complete outputs. The dock only loads/styles these final results.
 
-Important debt: the terrain task currently runs before hydrology. Flow-dependent
-products therefore need a supplied accumulation raster; otherwise they disclose
-that they are screening proxies. The next pipeline refactor should introduce a
-shared preprocessing stage, run hydrology before dependent indices, then create
-the report/bundle once at the end. Never silently reuse accumulation from a
-different DEM.
+Never reintroduce cached accumulation or a slope-as-drainage proxy. An external
+accumulation raster must match the preprocessed DEM CRS, dimensions and extent.
 
 ## Non-negotiable invariants
 
@@ -80,7 +80,7 @@ Run from repository root:
 
 ```bash
 python3 -m unittest tests.test_math_utils tests.test_plugin_package \
-  tests.test_map_recipes tests.test_provenance -v
+  tests.test_map_recipes tests.test_pipeline tests.test_provenance -v
 python3 -m compileall -q terrain_product_studio tests
 python3 scripts/package_plugin.py
 ```
@@ -99,10 +99,9 @@ failure for `qgis` or `osgeo` is an environment limitation, not a plugin result.
 - The ZIP must have exactly one top-level `terrain_product_studio/` directory.
 - Do not commit generated `dist/`, caches, local profiles or temporary DEM output.
 
-## Suggested phases after 2.1.1
+## Suggested phases after 2.2.0
 
-- Phase 1 — pipeline correctness: shared preprocessing DAG, hydrology-first
-  dependencies, no stale accumulation, end-of-run report and bundle.
+- Phase 1 — pipeline correctness: completed in 2.2.0.
 - Phase 2 — maintainability: split `dock.py` into UI panels/controller/run service;
   split `build_package.py` into preprocessing and product builders.
 - Phase 3 — extensibility: product registry with dependency declarations,

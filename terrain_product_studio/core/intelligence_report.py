@@ -28,13 +28,16 @@ def generate_intelligence_report(
     geomorphon_path: str | None = None,
     spi_path: str | None = None,
     sti_path: str | None = None,
+    band_number: int = 1,
 ) -> str:
     """Generate an executive HTML topographic intelligence report with interactive SVG charts and spatial KPIs."""
     ds = gdal.Open(dem_path, gdal.GA_ReadOnly)
     if ds is None:
         raise RuntimeError(f"Could not open DEM for intelligence report: {dem_path}")
 
-    band = ds.GetRasterBand(1)
+    band = ds.GetRasterBand(int(band_number))
+    if band is None:
+        raise RuntimeError(f"DEM band {band_number} is not available for the report.")
     elev = band.ReadAsArray().astype(np.float32, copy=False)
     nodata = band.GetNoDataValue()
 
@@ -609,4 +612,3 @@ def generate_intelligence_report(
 
     ds = None
     return output_html_path
-

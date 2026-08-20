@@ -88,12 +88,9 @@ class TerrainStudioDock(QDockWidget):
         self._last_results = None
         self._run_config = None
         self._run_parameters = None
-        self._terrain_results = None
-        self._phase = None
         self._fonts_populated = False
         self._contour_suggestion = None
         self._last_layout_layers = None
-        self._last_accumulation = None
         self._build_ui()
         self._connect_signals()
         self._on_layer_changed(self.dem_combo.currentLayer())
@@ -312,10 +309,9 @@ class TerrainStudioDock(QDockWidget):
         layout.setColumnStretch(1, 1)
         note = QLabel(
             self.tr(
-                "💡 Run Hydrology first for accurate SPI/STI, landslide hazard and "
-                "multi-hazard results — the dock passes its real flow accumulation "
-                "to the package. Without it, slope is used as a stand-in and "
-                "multi-hazard is skipped."
+                "💡 Flow dependencies are automatic: SPI/STI, landslide hazard and "
+                "multi-hazard trigger hydrology before analysis when no accumulation "
+                "raster is supplied. Slope is never used as a drainage proxy."
             )
         )
         note.setWordWrap(True)
@@ -793,7 +789,6 @@ class TerrainStudioDock(QDockWidget):
         self.band_spin.setRange(1, max(1, bands))
         self.band_spin.setValue(1)
         self._contour_suggestion = None
-        self._last_accumulation = None
         self.contour_suggestion_label.setText(
             self.tr("Suggested interval: — (run Inspect DEM)")
         )
@@ -1195,7 +1190,15 @@ class TerrainStudioDock(QDockWidget):
             "SPOT_PCT": self.spot_pct_spin.value(),
             "SMOOTHING": self.smoothing_combo.currentIndex(),
             "SIMPLIFY_TOLERANCE": self.simplify_tolerance.value(),
-            "ACCUMULATION": self._last_accumulation or None,
+            "ACCUMULATION": None,
+            "CREATE_HYDROLOGY": self.hydrology_check.isChecked(),
+            "STREAM_THRESHOLD_HA": self.stream_threshold.value(),
+            "CREATE_BASINS": self.basins_check.isChecked(),
+            "CREATE_TWI": (
+                self.hydrology_check.isChecked() and self.twi_check.isChecked()
+            ),
+            "STREAM_SMOOTHING": self.stream_smoothing_combo.currentIndex(),
+            "STREAM_SIMPLIFY_TOLERANCE": self.simplify_tolerance.value(),
             "CREATE_BUNDLE": self.bundle_check.isChecked(),
             "MULTIHAZARD_WEIGHT_LANDSLIDE": self.multi_hazard_weight_landslide.value(),
             "MULTIHAZARD_WEIGHT_TWI": self.multi_hazard_weight_twi.value(),
@@ -1252,6 +1255,7 @@ class TerrainStudioDock(QDockWidget):
         if (
             not self.contour_check.isChecked()
             and not any(checkbox.isChecked() for checkbox in self.products.values())
+            and not self.hydrology_check.isChecked()
         ):
             QMessageBox.information(
                 self,
@@ -1286,8 +1290,6 @@ class TerrainStudioDock(QDockWidget):
         )
         self._run_config = self._cartography_config()
         self._run_parameters = run_parameters
-        self._terrain_results = None
-        self._phase = "terrain"
         self.task.executed.connect(self._task_finished)
         self.run_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
@@ -1317,93 +1319,8 @@ class TerrainStudioDock(QDockWidget):
             return
 
         config = self._run_config or self._cartography_config()
-
-        # Phase 1 finished: if hydrology is requested, launch phase 2 algorithm
-        if self._phase == "terrain" and config.get("create_hydrology"):
-            self._terrain_results = dict(results)
-            hydrology_alg = QgsApplication.processingRegistry().algorithmById("terrainstudio:buildhydrology")
-            if hydrology_alg is not None:
-                self._phase = "hydrology"
-                working_input = results.get("WORKING_DEM") or self.dem_combo.currentLayer()
-                hydro_params = {
-                    "INPUT": working_input,
-                    "BAND": self.band_spin.value(),
-                    "OUTPUT_FOLDER": self.output_edit.text().strip(),
-                    "PREFIX": sanitize_prefix(self.prefix_edit.text()),
-                    "Z_UNIT": self.z_unit_combo.currentIndex(),
-                    "STREAM_THRESHOLD_HA": self.stream_threshold.value(),
-                    "CREATE_BASINS": self.basins_check.isChecked(),
-                    "CREATE_TWI": self.twi_check.isChecked(),
-                    "SMOOTHING": self.stream_smoothing_combo.currentIndex(),
-                    "SIMPLIFY_TOLERANCE": self.simplify_tolerance.value(),
-                }
-                self.feedback = QgsProcessingFeedback()
-                self.feedback.progressChanged.connect(lambda val: self.progress.setValue(int(val)))
-                self.task = QgsProcessingAlgRunnerTask(hydrology_alg, hydro_params, self.context, self.feedback)
-                self.task.executed.connect(self._task_finished)
-                self.run_button.setEnabled(False)
-                self.cancel_button.setEnabled(True)
-                self.report_edit.appendPlainText(f"\n{self.tr('Extracting hydrology & river network…')}")
-                QgsApplication.taskManager().addTask(self.task)
-                return
-
-        # Remember real flow accumulation for the next package run so SPI/STI
-        # and landslide hazard use actual drainage instead of the slope proxy.
-        if self._phase == "hydrology" and results.get("FLOW_ACCUMULATION"):
-            self._last_accumulation = str(results.get("FLOW_ACCUMULATION"))
-        self._phase = None
-
-        # Merge results if hydrology ran after terrain
         final_results = dict(results)
-        if self._terrain_results:
-            final_results.update(self._terrain_results)
-            self._terrain_results = None
-
-        # Refresh 3D Web Viewer & Intelligence Report with newly generated Hydrology rivers & TWI
-        working_dem_path = str(final_results.get("WORKING_DEM", ""))
-        if not working_dem_path and self.dem_combo.currentLayer():
-            working_dem_path = self.dem_combo.currentLayer().source().split("|")[0]
         prefix = sanitize_prefix(self.prefix_edit.text())
-
-        if final_results.get("STREAMS") and os.path.exists(str(final_results.get("STREAMS"))):
-            v3d_target = final_results.get("VIEWER_3D")
-            if v3d_target and os.path.exists(str(v3d_target)):
-                try:
-                    generate_3d_web_viewer(
-                        dem_path=working_dem_path,
-                        output_html_path=str(v3d_target),
-                        title=f"{prefix.title()} 3D Interactive WebGIS Studio",
-                        stream_vector_path=str(final_results.get("STREAMS")),
-                        contour_vector_path=final_results.get("CONTOURS"),
-                        spot_peaks_path=final_results.get("SPOT_ELEVATIONS"),
-                        slope_path=final_results.get("SLOPE"),
-                        twi_path=final_results.get("TWI"),
-                        suitability_path=final_results.get("SUITABILITY"),
-                        hazard_path=final_results.get("LANDSLIDE_HAZARD"),
-                    )
-                except Exception as error:
-                    self.report_edit.appendPlainText(
-                        f"{self.tr('3D Web Map refresh warning')}: {error}"
-                    )
-
-            intel_target = final_results.get("INTELLIGENCE_REPORT")
-            if intel_target and os.path.exists(str(intel_target)):
-                try:
-                    generate_intelligence_report(
-                        dem_path=working_dem_path,
-                        output_html_path=str(intel_target),
-                        title=f"{prefix.title()} Topographic Intelligence Report",
-                        slope_path=final_results.get("SLOPE"),
-                        aspect_path=final_results.get("ASPECT"),
-                        stream_vector_path=str(final_results.get("STREAMS")),
-                        suitability_path=final_results.get("SUITABILITY"),
-                        hazard_path=final_results.get("LANDSLIDE_HAZARD"),
-                        twi_path=final_results.get("TWI"),
-                    )
-                except Exception as error:
-                    self.report_edit.appendPlainText(
-                        f"{self.tr('Intelligence Report refresh warning')}: {error}"
-                    )
 
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)

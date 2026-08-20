@@ -33,6 +33,7 @@
 - **Zero Data Distortion**: Raw analytical derivatives maintain real floating-point physical units (degrees, radians, meters, index scores) while cartographic layers receive styling.
 - **Smart Setup Assistant**: Contour interval suggested from AOI scale and relief (snapped to the standard `1/2/2.5/5/10/20/25/50/100` table) with one-click Apply; **20-map palette library** with gradient thumbnails grouped Classic / Artistic / Environment / Scientific / **Dark Terrain** (six true dark ramps with elevation-anchored stops that auto-switch to the Night Dark cartography theme); live swatch preview.
 - **Continuous Strahler Polyline Network**: Advanced D8 topological tracing extracts smooth, continuous vector streams with rich hydraulic attributes (`ORDER`, `LENGTH_M`, `AREA_HA`) — now with optional Chaikin / Douglas–Peucker cartographic smoothing.
+- **Dependency-Safe One-Click Pipeline**: The DEM is preprocessed once, hydrology runs before SPI/STI/landslide/multi-hazard products, and slope/TWI dependencies are auto-enabled explicitly. No cached accumulation or slope drainage proxy is used.
 - **Multi-Hazard Composite & Shareable Bundle**: Weighted landslide × slope × TWI composite index, exported together with every raster and vector layer into **one GeoPackage** (lossless PNG tiles for byte rasters, OGC 2D-gridded-coverage for float rasters).
 - **3D Printing & Workflow**: STL/OBJ mesh export (auto-downsampling, z exaggeration, watertight base plate), one-click industry presets (Urban / Agriculture / Disaster / Mining), a run-history journal (last 20 jobs reopenable from the Inspect tab), and one-click **QGIS project (.qgz)** export that saves every layer, style, group and print layout into the output folder.
 - **Real-Time 3D WebGIS Studio (`.html`)**: Self-contained WebGL 3D terrain viewer with flood simulation, live profile cross-sections, solar shadow time-lapse, drone flythrough, and AI Q&A assistant.
@@ -149,13 +150,13 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 ## 🚀 Installation
 
 ### Option A: Install via QGIS Plugin Manager
-1. Download the latest `terrain_product_studio-2.1.1.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Download the latest `terrain_product_studio-2.2.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Open QGIS $\rightarrow$ **Plugins** $\rightarrow$ **Manage and Install Plugins...**
 3. Select **Install from ZIP** $\rightarrow$ choose the downloaded `.zip` file $\rightarrow$ Click **Install Plugin**.
 
 > Do **not** install GitHub's **Code → Download ZIP** archive. It contains the repository wrapper, not an installable QGIS plugin. Use the versioned ZIP under **Releases**; it contains `terrain_product_studio/metadata.txt` at the required location.
 
-> **v2.1.1**: stable packaging and layout hotfix — removes the experimental flag, restores QGIS 3.x grid-frame compatibility, validates release ZIP structure, prefers smoothed display layers, and adds two creative map recipes.
+> **v2.2.0**: pipeline correctness release — hydrology now runs inside the master DAG before every flow-dependent product; dependencies are explicit, stale accumulation reuse and slope proxies are removed, and the final manifest describes the complete bundled run.
 
 ### Option B: Manual Installation
 Copy the `terrain_product_studio` directory into your QGIS active profile plugin folder:

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.0 — 2026-08-20
+
+Pipeline correctness release: one preprocessed DEM, explicit dependencies and real drainage for every flow-driven product.
+
+- Replaced the dock's two-task terrain-then-hydrology chain with one master dependency DAG: preprocess → hydrology → terrain/flow products → viewer/report → bundle → final manifest.
+- Removed cached accumulation from previous runs and removed every slope-as-drainage fallback. Landslide hazard, SPI, STI and multi-hazard now auto-trigger hydrology when no compatible accumulation raster is supplied.
+- Added a pure-Python `PipelinePlan` which records requested, effective and automatically enabled products; slope and TWI dependencies are resolved before processing starts.
+- External accumulation rasters are validated against the preprocessed DEM CRS, dimensions and extent before use.
+- Hydrology, flow indices, TWI, 3D viewer and intelligence report now share the same run outputs; the final JSON manifest is written after bundling and includes the complete output set and late warnings.
+- Fixed hydrology reporting so river smoothing statistics no longer overwrite the D8/Strahler calculation summary.
+- A stream threshold above the DEM contributing area now produces a valid empty stream layer and warning instead of aborting all hydrology outputs.
+
 ## 2.1.1 — 2026-08-20
 
 Stable packaging and cartography hotfix.

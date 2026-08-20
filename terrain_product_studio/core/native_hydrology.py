@@ -85,8 +85,6 @@ def _write_continuous_stream_network(
 
     is_stream = stream_mask_flat.copy()
     stream_cells = np.flatnonzero(is_stream)
-    if stream_cells.size == 0:
-        return 0, 0
 
     # Downstream target within stream network
     stream_downstream = np.full(total, -1, dtype=np.int32)
@@ -213,7 +211,7 @@ def _write_continuous_stream_network(
 
     layer.StartTransaction()
     feature_defn = layer.GetLayerDefn()
-    max_order_found = 1
+    max_order_found = 0
 
     for reach in reaches:
         geom = ogr.Geometry(ogr.wkbLineString)

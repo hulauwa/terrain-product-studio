@@ -1,5 +1,9 @@
 # Terrain Product Studio 2.0.0 — Design Document
 
+> Tài liệu lịch sử. Kể từ v2.2.0, master pipeline chạy hydrology trước các
+> sản phẩm phụ thuộc dòng chảy và không còn dùng accumulation cache hoặc slope
+> proxy. Xem `AGENTS.md` và `core/pipeline.py` cho contract hiện hành.
+
 > Trạng thái: **đề xuất, chưa code**. Ngày: 2026-08-18.
 > Mục tiêu của 2.0.0: **Publication-grade** — đẹp hơn, phân tích sâu hơn, chia sẻ dễ hơn. Mỗi milestone độc lập và ship được.
 

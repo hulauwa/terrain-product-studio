@@ -970,6 +970,7 @@ def generate_3d_web_viewer(
     suitability_path: str | None = None,
     hazard_path: str | None = None,
     grid_size: int = 240,
+    band_number: int = 1,
 ) -> str:
     """Generate a self-contained 3D WebGIS Studio HTML file with multi-layer overlays and comprehensive analytical tools."""
     clean_path = str(dem_path).split("|")[0].strip('"').strip("'")
@@ -977,7 +978,9 @@ def generate_3d_web_viewer(
     if ds is None:
         raise RuntimeError(f"Could not open DEM for 3D viewer: {dem_path}")
 
-    band = ds.GetRasterBand(1)
+    band = ds.GetRasterBand(int(band_number))
+    if band is None:
+        raise RuntimeError(f"DEM band {band_number} is not available for the 3D viewer.")
     orig_w, orig_h = ds.RasterXSize, ds.RasterYSize
     gt = ds.GetGeoTransform()
     proj = ds.GetProjection() or "Projected Coordinates"

@@ -35,6 +35,7 @@ from qgis.core import (
 from ..core.dem_info import inspect_dem_layer
 from ..core.intelligence_report import generate_intelligence_report
 from ..core.math_utils import sanitize_prefix, unique_path
+from ..core.pipeline import plan_pipeline
 from ..core.presets import (
     DEFAULT_PALETTE,
     PALETTE_ORDER,
@@ -110,6 +111,12 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     CREATE_BUNDLE = "CREATE_BUNDLE"
     CREATE_3D_VIEWER = "CREATE_3D_VIEWER"
     CREATE_INTELLIGENCE_REPORT = "CREATE_INTELLIGENCE_REPORT"
+    CREATE_HYDROLOGY = "CREATE_HYDROLOGY"
+    STREAM_THRESHOLD_HA = "STREAM_THRESHOLD_HA"
+    CREATE_BASINS = "CREATE_BASINS"
+    CREATE_TWI = "CREATE_TWI"
+    STREAM_SMOOTHING = "STREAM_SMOOTHING"
+    STREAM_SIMPLIFY_TOLERANCE = "STREAM_SIMPLIFY_TOLERANCE"
     CONTOUR_INTERVAL = "CONTOUR_INTERVAL"
     INDEX_MULTIPLIER = "INDEX_MULTIPLIER"
     SPOT_PCT = "SPOT_PCT"
@@ -123,6 +130,15 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     MULTIHAZARD_WEIGHT_SLOPE = "MULTIHAZARD_WEIGHT_SLOPE"
 
     WORKING_DEM = "WORKING_DEM"
+    FILLED_DEM = "FILLED_DEM"
+    FLOW_DIRECTION = "FLOW_DIRECTION"
+    FLOW_ACCUMULATION = "FLOW_ACCUMULATION"
+    STREAM_RASTER = "STREAM_RASTER"
+    STREAMS = "STREAMS"
+    STREAMS_SMOOTH = "STREAMS_SMOOTH"
+    BASINS = "BASINS"
+    TWI = "TWI"
+    HYDROLOGY_REPORT = "HYDROLOGY_REPORT"
     COLOR_RELIEF = "COLOR_RELIEF"
     HILLSHADE = "HILLSHADE"
     MULTI_HILLSHADE = "MULTI_HILLSHADE"
@@ -171,8 +187,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         return self.tr(
             "Creates a consistent package of DEM-derived cartographic and analytical products. "
             "A DEM in angular coordinates is automatically reprojected to a local UTM CRS before "
-            "slope and relief calculations. Existing files are never overwritten. Hydrology is "
-            "available as a separate provider algorithm and is chained automatically by the dock."
+            "slope and relief calculations. Existing files are never overwritten. Hydrology runs "
+            "inside the same dependency pipeline before products which require flow accumulation."
         )
 
     def createInstance(self):
@@ -304,10 +320,58 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterRasterLayer(
                 self.ACCUMULATION,
                 self.tr(
-                    "Flow accumulation raster (optional — makes SPI/STI and "
-                    "landslide hazard use real drainage, not the slope proxy)"
+                    "Existing flow accumulation raster (optional — otherwise "
+                    "hydrology is generated automatically when required)"
                 ),
                 optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.CREATE_HYDROLOGY,
+                self.tr("Create hydrology and river network"),
+                defaultValue=False,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.STREAM_THRESHOLD_HA,
+                self.tr("Minimum contributing area for streams (hectares)"),
+                type=_number_type_double(),
+                minValue=0.0001,
+                maxValue=1000000000.0,
+                defaultValue=25.0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.CREATE_BASINS,
+                self.tr("Create watershed basin raster"),
+                defaultValue=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.CREATE_TWI,
+                self.tr("Create Topographic Wetness Index (TWI)"),
+                defaultValue=False,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.STREAM_SMOOTHING,
+                self.tr("River smoothness (cartographic copy)"),
+                options=[self.tr("Off"), self.tr("Light"), self.tr("Medium"), self.tr("Heavy")],
+                defaultValue=0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.STREAM_SIMPLIFY_TOLERANCE,
+                self.tr("Simplify rivers before smoothing (map units, 0 = off)"),
+                type=_number_type_double(),
+                minValue=0.0,
+                defaultValue=0.0,
             )
         )
         self.addParameter(
@@ -417,6 +481,15 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         )
 
         self.addOutput(QgsProcessingOutputRasterLayer(self.WORKING_DEM, self.tr("Working DEM")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.FILLED_DEM, self.tr("Filled DEM")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.FLOW_DIRECTION, self.tr("D8 flow direction")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.FLOW_ACCUMULATION, self.tr("Flow accumulation")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.STREAM_RASTER, self.tr("Potential stream raster")))
+        self.addOutput(QgsProcessingOutputVectorLayer(self.STREAMS, self.tr("Potential drainage network")))
+        self.addOutput(QgsProcessingOutputVectorLayer(self.STREAMS_SMOOTH, self.tr("Smoothed rivers")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.BASINS, self.tr("Watershed basins")))
+        self.addOutput(QgsProcessingOutputRasterLayer(self.TWI, self.tr("Topographic Wetness Index")))
+        self.addOutput(QgsProcessingOutputFile(self.HYDROLOGY_REPORT, self.tr("Hydrology report")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.COLOR_RELIEF, self.tr("Color relief")))
         self.addOutput(QgsProcessingOutputRasterLayer(self.HILLSHADE, self.tr("Hillshade")))
         self.addOutput(
@@ -453,7 +526,12 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     def _available_parameters(algorithm_id):
         algorithm = QgsApplication.processingRegistry().algorithmById(algorithm_id)
         if algorithm is None:
-            provider_name = "GRASS" if algorithm_id.startswith("grass:") else "GDAL"
+            if algorithm_id.startswith("terrainstudio:"):
+                provider_name = "Terrain Product Studio"
+            elif algorithm_id.startswith("grass:"):
+                provider_name = "GRASS"
+            else:
+                provider_name = "GDAL"
             raise QgsProcessingException(
                 f"Required Processing algorithm '{algorithm_id}' is not available. "
                 f"Enable the {provider_name} provider in QGIS Processing settings."
@@ -505,6 +583,29 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             pass
         return 1.0
 
+    @staticmethod
+    def _rasters_share_grid(first, second):
+        """Return True when two QGIS rasters share CRS, dimensions and extent."""
+
+        if first.crs() != second.crs():
+            return False
+        if first.width() != second.width() or first.height() != second.height():
+            return False
+        first_extent = first.extent()
+        second_extent = second.extent()
+        tolerance = max(
+            abs(first_extent.width()), abs(first_extent.height()), 1.0
+        ) * 1e-9
+        return all(
+            abs(left - right) <= tolerance
+            for left, right in (
+                (first_extent.xMinimum(), second_extent.xMinimum()),
+                (first_extent.yMinimum(), second_extent.yMinimum()),
+                (first_extent.xMaximum(), second_extent.xMaximum()),
+                (first_extent.yMaximum(), second_extent.yMaximum()),
+            )
+        )
+
     def processAlgorithm(self, parameters, context, feedback):
         source = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         band = self.parameterAsInt(parameters, self.BAND, context)
@@ -528,6 +629,20 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         smoothing_index = self.parameterAsEnum(parameters, self.SMOOTHING, context)
         simplify_tolerance = self.parameterAsDouble(
             parameters, self.SIMPLIFY_TOLERANCE, context
+        )
+        create_hydrology_requested = self.parameterAsBool(
+            parameters, self.CREATE_HYDROLOGY, context
+        )
+        stream_threshold_ha = self.parameterAsDouble(
+            parameters, self.STREAM_THRESHOLD_HA, context
+        )
+        create_basins = self.parameterAsBool(parameters, self.CREATE_BASINS, context)
+        create_twi_requested = self.parameterAsBool(parameters, self.CREATE_TWI, context)
+        stream_smoothing = self.parameterAsEnum(
+            parameters, self.STREAM_SMOOTHING, context
+        )
+        stream_simplify_tolerance = self.parameterAsDouble(
+            parameters, self.STREAM_SIMPLIFY_TOLERANCE, context
         )
         accumulation_input = None
         accumulation_layer = self.parameterAsRasterLayer(parameters, self.ACCUMULATION, context)
@@ -582,25 +697,38 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             self.VIEWER_3D: self.parameterAsBool(parameters, self.CREATE_3D_VIEWER, context),
             self.INTELLIGENCE_REPORT: self.parameterAsBool(parameters, self.CREATE_INTELLIGENCE_REPORT, context),
         }
-        if not any(selected.values()):
+        if not any(selected.values()) and not create_hydrology_requested:
             raise QgsProcessingException(self.tr("Select at least one terrain product."))
 
-        needs_accumulation = (
-            selected[self.LANDSLIDE_HAZARD] or selected[self.SPI] or selected[self.STI]
+        pipeline_plan = plan_pipeline(
+            (key for key, enabled in selected.items() if enabled),
+            create_hydrology=create_hydrology_requested,
+            create_twi=create_twi_requested,
+            accumulation_available=bool(accumulation_input),
         )
+        for auto_product in pipeline_plan.auto_enabled_products:
+            selected[auto_product] = True
 
-        step_count = sum(selected.values()) + 4
+        step_count = (
+            sum(selected.values())
+            + 4
+            + int(pipeline_plan.run_hydrology)
+            + int(pipeline_plan.create_twi and not pipeline_plan.run_hydrology)
+        )
         multi = QgsProcessingMultiStepFeedback(step_count, feedback)
         current_step = 0
         outputs = {self.OUTPUT_FOLDER: folder}
         warnings = []
 
-        if needs_accumulation and not accumulation_input:
+        if pipeline_plan.auto_enabled_products:
             warnings.append(
-                "Landslide hazard, SPI and STI use slope as a stand-in for flow "
-                "accumulation because no accumulation raster was provided. Run the "
-                "hydrology algorithm first and pass its flow accumulation output for "
-                "hydrologically correct values."
+                "Pipeline dependency auto-enabled: "
+                + ", ".join(sorted(pipeline_plan.auto_enabled_products))
+            )
+        if pipeline_plan.run_hydrology and not create_hydrology_requested:
+            warnings.append(
+                "Hydrology was auto-enabled because selected products require real "
+                "flow accumulation."
             )
 
         source_info = inspect_dem_layer(source, band, sum(selected.values()))
@@ -672,7 +800,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                     try:
                         translate_options = gdal.TranslateOptions(
                             projWin=proj_win,
-                            creationOptions=list(creation_options),
+                            creationOptions=creation_options.split("|"),
                         )
                         ds_clipped = gdal.Translate(clipped_path, input_dem_file, options=translate_options)
                         if ds_clipped is not None:
@@ -724,6 +852,20 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             if not working_layer.isValid():
                 raise QgsProcessingException(self.tr("The working DEM could not be opened."))
 
+        if accumulation_input and not pipeline_plan.run_hydrology:
+            accumulation_grid = QgsRasterLayer(
+                accumulation_input, f"{prefix}_flow_accumulation_input"
+            )
+            if not accumulation_grid.isValid() or not self._rasters_share_grid(
+                working_layer, accumulation_grid
+            ):
+                raise QgsProcessingException(
+                    self.tr(
+                        "The supplied flow accumulation raster must have the same "
+                        "CRS, dimensions and extent as the preprocessed DEM."
+                    )
+                )
+
         stats = working_layer.dataProvider().bandStatistics(
             band,
             all_raster_statistics_flag(),
@@ -744,6 +886,63 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         horizontal_m = self._horizontal_meters_per_unit(working_crs)
         vertical_m = 1.0 if z_unit_index == 0 else 0.3048
         scale = horizontal_m / vertical_m
+
+        # Hydrology is part of the master DAG in v2.2: preprocessing happens
+        # once, then real accumulation is available before any dependent
+        # terrain indices are calculated.
+        if pipeline_plan.run_hydrology:
+            if multi.isCanceled():
+                return outputs
+            multi.setCurrentStep(current_step)
+            current_step += 1
+            multi.pushInfo(
+                self.tr(
+                    "Running hydrology before flow-dependent terrain products…"
+                )
+            )
+            hydrology_outputs = self._run_child(
+                "terrainstudio:buildhydrology",
+                {
+                    "INPUT": working_dem,
+                    "BAND": band,
+                    "OUTPUT_FOLDER": folder,
+                    "PREFIX": prefix,
+                    "Z_UNIT": z_unit_index,
+                    "STREAM_THRESHOLD_HA": stream_threshold_ha,
+                    "CREATE_BASINS": create_basins,
+                    "CREATE_TWI": pipeline_plan.create_twi,
+                    "SMOOTHING": stream_smoothing,
+                    "SIMPLIFY_TOLERANCE": stream_simplify_tolerance,
+                },
+                context,
+                multi,
+            )
+            outputs.update(hydrology_outputs)
+            accumulation_input = str(
+                hydrology_outputs.get(self.FLOW_ACCUMULATION, "")
+            )
+            if not accumulation_input or not os.path.exists(accumulation_input):
+                raise QgsProcessingException(
+                    self.tr("Hydrology did not create a valid flow accumulation raster.")
+                )
+            hydrology_report_path = str(
+                hydrology_outputs.get(self.HYDROLOGY_REPORT, "")
+            )
+            if hydrology_report_path and os.path.exists(hydrology_report_path):
+                try:
+                    with open(hydrology_report_path, encoding="utf-8") as stream:
+                        hydrology_manifest = json.load(stream)
+                    if hydrology_manifest.get("summary", {}).get(
+                        "stream_reaches", 0
+                    ) == 0:
+                        warnings.append(
+                            "No stream reaches met the selected contributing-area "
+                            "threshold; hydrology rasters remain valid."
+                        )
+                except (OSError, ValueError, TypeError):
+                    warnings.append(
+                        "The hydrology summary could not be read into the final manifest."
+                    )
 
         def run_product(output_key, algorithm_id, suffix, algorithm_parameters, extension="tif"):
             nonlocal current_step
@@ -923,6 +1122,26 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 except Exception as err:
                     warnings.append(f"Suitability notice: {err}")
 
+        # When an external accumulation raster is supplied, TWI is resolved
+        # here. Hydrology-generated TWI is already present in ``outputs``.
+        if pipeline_plan.create_twi and not outputs.get(self.TWI):
+            if not accumulation_input or not outputs.get(self.SLOPE):
+                raise QgsProcessingException(
+                    self.tr("TWI requires real flow accumulation and slope rasters.")
+                )
+            if not multi.isCanceled():
+                multi.setCurrentStep(current_step)
+                current_step += 1
+                twi_path = self._output_path(folder, prefix, "twi", "tif")
+                multi.pushInfo(self.tr("Calculating Topographic Wetness Index…"))
+                try:
+                    calculate_twi(accumulation_input, outputs[self.SLOPE], twi_path)
+                    if not os.path.exists(twi_path):
+                        raise RuntimeError("TWI output was not created.")
+                    outputs[self.TWI] = twi_path
+                except Exception as err:
+                    raise QgsProcessingException(str(err)) from err
+
         # Landslide Hazard & RUSLE LS Factor
         if selected[self.LANDSLIDE_HAZARD] and outputs.get(self.SLOPE):
             if not multi.isCanceled():
@@ -932,10 +1151,16 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 ls_path = self._output_path(folder, prefix, "rusle_ls_factor", "tif")
                 multi.pushInfo(self.tr("Calculating landslide hazard and RUSLE LS factor…"))
                 try:
-                    # Real flow accumulation when supplied, otherwise the slope
-                    # raster stands in as a flow-convergence proxy.
-                    accumulation_source = accumulation_input or outputs[self.SLOPE]
-                    calculate_landslide_hazard(outputs[self.SLOPE], accumulation_source, hazard_path, ls_path)
+                    if not accumulation_input:
+                        raise RuntimeError(
+                            "Landslide hazard requires a real flow accumulation raster."
+                        )
+                    calculate_landslide_hazard(
+                        outputs[self.SLOPE],
+                        accumulation_input,
+                        hazard_path,
+                        ls_path,
+                    )
                     if os.path.exists(hazard_path):
                         outputs[self.LANDSLIDE_HAZARD] = hazard_path
                     if os.path.exists(ls_path):
@@ -974,12 +1199,16 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                     warnings.append(f"Geomorphon notice: {err}")
 
         # Stream Power Index (SPI) & Sediment Transport Index (STI)
-        accumulation_source = accumulation_input or outputs.get(self.SLOPE)
+        accumulation_source = accumulation_input
         for output_key, calculator, suffix, label in (
             (self.SPI, calculate_spi, "stream_power_index", "SPI"),
             (self.STI, calculate_sti, "sediment_transport_index", "STI"),
         ):
-            if selected[output_key] and accumulation_source:
+            if selected[output_key]:
+                if not accumulation_source:
+                    raise QgsProcessingException(
+                        self.tr(f"{label} requires a real flow accumulation raster.")
+                    )
                 if not multi.isCanceled():
                     multi.setCurrentStep(current_step)
                     current_step += 1
@@ -1027,55 +1256,58 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                     if not landslide_path:
                         landslide_path = self._output_path(folder, prefix, "landslide_hazard", "tif")
                         ls_path = self._output_path(folder, prefix, "rusle_ls_factor", "tif")
-                        accumulation_source = accumulation_input or slope_path
+                        if not accumulation_input:
+                            raise RuntimeError(
+                                "Multi-hazard requires a real flow accumulation raster."
+                            )
                         calculate_landslide_hazard(
-                            slope_path, accumulation_source, landslide_path, ls_path
+                            slope_path, accumulation_input, landslide_path, ls_path
                         )
                         outputs[self.LANDSLIDE_HAZARD] = landslide_path
                         outputs[self.LS_FACTOR] = ls_path
 
-                    twi_path = None
-                    if accumulation_input:
+                    twi_path = outputs.get(self.TWI)
+                    if not twi_path and accumulation_input:
                         twi_path = self._output_path(folder, prefix, "twi", "tif")
                         calculate_twi(accumulation_input, slope_path, twi_path)
+                        if os.path.exists(twi_path):
+                            outputs[self.TWI] = twi_path
 
-                    if twi_path:
-                        weights = (
-                            float(
-                                self.parameterAsDouble(
-                                    parameters, self.MULTIHAZARD_WEIGHT_LANDSLIDE, context
-                                )
-                            ),
-                            float(
-                                self.parameterAsDouble(
-                                    parameters, self.MULTIHAZARD_WEIGHT_TWI, context
-                                )
-                            ),
-                            float(
-                                self.parameterAsDouble(
-                                    parameters, self.MULTIHAZARD_WEIGHT_SLOPE, context
-                                )
-                            ),
+                    if not twi_path:
+                        raise RuntimeError(
+                            "Multi-hazard dependency error: TWI was not created."
                         )
-                        stats = calculate_multihazard(
-                            landslide_path,
-                            twi_path,
-                            slope_path,
-                            multi_hazard_path,
-                            weights=weights,
-                        )
-                        if os.path.exists(multi_hazard_path):
-                            outputs[self.MULTIHAZARD] = multi_hazard_path
-                            multi.pushInfo(
-                                self.tr(
-                                    "Multi-hazard: {low}% low, {moderate}% moderate, "
-                                    "{high}% high".format(**stats)
-                                )
+                    weights = (
+                        float(
+                            self.parameterAsDouble(
+                                parameters, self.MULTIHAZARD_WEIGHT_LANDSLIDE, context
                             )
-                    else:
-                        warnings.append(
-                            "Multi-hazard skipped: TWI needs a flow accumulation "
-                            "raster (run the Hydrology algorithm first)."
+                        ),
+                        float(
+                            self.parameterAsDouble(
+                                parameters, self.MULTIHAZARD_WEIGHT_TWI, context
+                            )
+                        ),
+                        float(
+                            self.parameterAsDouble(
+                                parameters, self.MULTIHAZARD_WEIGHT_SLOPE, context
+                            )
+                        ),
+                    )
+                    stats = calculate_multihazard(
+                        landslide_path,
+                        twi_path,
+                        slope_path,
+                        multi_hazard_path,
+                        weights=weights,
+                    )
+                    if os.path.exists(multi_hazard_path):
+                        outputs[self.MULTIHAZARD] = multi_hazard_path
+                        multi.pushInfo(
+                            self.tr(
+                                "Multi-hazard: {low}% low, {moderate}% moderate, "
+                                "{high}% high".format(**stats)
+                            )
                         )
                 except Exception as err:
                     warnings.append(f"Multi-hazard notice: {err}")
@@ -1092,11 +1324,15 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                         dem_path=working_dem_path,
                         output_html_path=v3d_path,
                         title=f"{prefix.title()} 3D Interactive WebGIS Studio",
+                        stream_vector_path=outputs.get(self.STREAMS_SMOOTH)
+                        or outputs.get(self.STREAMS),
                         contour_vector_path=outputs.get(self.CONTOURS),
                         spot_peaks_path=outputs.get(self.SPOT_ELEVATIONS),
                         slope_path=outputs.get(self.SLOPE),
+                        twi_path=outputs.get(self.TWI),
                         suitability_path=outputs.get(self.SUITABILITY),
                         hazard_path=outputs.get(self.LANDSLIDE_HAZARD),
+                        band_number=band,
                     )
                     if os.path.exists(v3d_path):
                         outputs[self.VIEWER_3D] = v3d_path
@@ -1117,65 +1353,20 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                         title=f"{prefix.title()} Topographic Intelligence Report",
                         slope_path=outputs.get(self.SLOPE),
                         aspect_path=outputs.get(self.ASPECT),
+                        stream_vector_path=outputs.get(self.STREAMS_SMOOTH)
+                        or outputs.get(self.STREAMS),
                         suitability_path=outputs.get(self.SUITABILITY),
                         hazard_path=outputs.get(self.LANDSLIDE_HAZARD),
+                        twi_path=outputs.get(self.TWI),
                         geomorphon_path=outputs.get(self.GEOMORPHON),
                         spi_path=outputs.get(self.SPI),
                         sti_path=outputs.get(self.STI),
+                        band_number=band,
                     )
                     if os.path.exists(intel_path):
                         outputs[self.INTELLIGENCE_REPORT] = intel_path
                 except Exception as err:
                     warnings.append(f"Intelligence report notice: {err}")
-
-        multi.setCurrentStep(min(current_step, step_count - 1))
-        report_path = self._output_path(folder, prefix, "report", "json")
-        report = {
-            "plugin": "Terrain Product Studio",
-            "version": plugin_version(),
-            "created_utc": datetime.now(timezone.utc).isoformat(),
-            "source": source.source(),
-            "source_band": band,
-            "source_crs": source.crs().authid() or source.crs().description(),
-            "working_crs": working_crs.authid() or working_crs.description(),
-            "elevation_unit": "m" if z_unit_index == 0 else "ft",
-            "elevation_minimum": minimum,
-            "elevation_maximum": maximum,
-            "display_minimum_2pct": display_minimum,
-            "display_maximum_98pct": display_maximum,
-            "contour_interval": contour_interval,
-            "index_contour_interval": contour_interval * index_multiplier,
-            "palette": palette_key,
-            "compression": compression,
-            "hillshade": {
-                "azimuth": azimuth,
-                "altitude": altitude,
-                "vertical_exaggeration": vertical_exaggeration,
-                "zevenbergen_thorne": zevenbergen,
-            },
-            "provenance": build_run_provenance(
-                source_info,
-                source_path=source.source(),
-                source_band=band,
-                source_crs=source.crs().authid() or source.crs().description(),
-                working_crs=working_crs.authid() or working_crs.description(),
-                auto_reproject=auto_reproject,
-                compression=compression,
-                clip_extent=applied_clip_extent,
-                smoothing_iterations=smoothing_index,
-                simplify_tolerance=simplify_tolerance,
-            ),
-            "analytical_assumptions": analytical_assumptions(
-                (key for key, enabled in selected.items() if enabled),
-                accumulation_supplied=bool(accumulation_input),
-                smoothing_iterations=smoothing_index,
-            ),
-            "warnings": warnings,
-            "outputs": {key: value for key, value in outputs.items() if key != self.OUTPUT_FOLDER},
-        }
-        with open(report_path, "w", encoding="utf-8") as stream:
-            json.dump(report, stream, ensure_ascii=False, indent=2)
-        outputs[self.REPORT] = report_path
 
         # GeoPackage bundle: every raster/vector product in one portable file
         if selected[self.BUNDLE]:
@@ -1200,6 +1391,71 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                         )
                 except Exception as err:
                     warnings.append(f"Bundle notice: {err}")
+
+        # The manifest is intentionally last so it describes the final output
+        # set, including hydrology and the bundle, plus any late warnings.
+        multi.setCurrentStep(min(current_step, step_count - 1))
+        report_path = self._output_path(folder, prefix, "report", "json")
+        report = {
+            "plugin": "Terrain Product Studio",
+            "version": plugin_version(),
+            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "source": source.source(),
+            "source_band": band,
+            "source_crs": source.crs().authid() or source.crs().description(),
+            "working_crs": working_crs.authid() or working_crs.description(),
+            "elevation_unit": "m" if z_unit_index == 0 else "ft",
+            "elevation_minimum": minimum,
+            "elevation_maximum": maximum,
+            "display_minimum_2pct": display_minimum,
+            "display_maximum_98pct": display_maximum,
+            "contour_interval": contour_interval,
+            "index_contour_interval": contour_interval * index_multiplier,
+            "palette": palette_key,
+            "compression": compression,
+            "pipeline": {
+                "requested_products": sorted(pipeline_plan.requested_products),
+                "effective_products": sorted(pipeline_plan.effective_products),
+                "auto_enabled_products": sorted(
+                    pipeline_plan.auto_enabled_products
+                ),
+                "hydrology_run": pipeline_plan.run_hydrology,
+                "accumulation_source": pipeline_plan.accumulation_source,
+                "twi_dependency_enabled": pipeline_plan.create_twi,
+            },
+            "hillshade": {
+                "azimuth": azimuth,
+                "altitude": altitude,
+                "vertical_exaggeration": vertical_exaggeration,
+                "zevenbergen_thorne": zevenbergen,
+            },
+            "provenance": build_run_provenance(
+                source_info,
+                source_path=source.source(),
+                source_band=band,
+                source_crs=source.crs().authid() or source.crs().description(),
+                working_crs=working_crs.authid() or working_crs.description(),
+                auto_reproject=auto_reproject,
+                compression=compression,
+                clip_extent=applied_clip_extent,
+                smoothing_iterations=smoothing_index,
+                simplify_tolerance=simplify_tolerance,
+            ),
+            "analytical_assumptions": analytical_assumptions(
+                (key for key, enabled in selected.items() if enabled),
+                accumulation_supplied=bool(accumulation_input),
+                smoothing_iterations=smoothing_index,
+            ),
+            "warnings": warnings,
+            "outputs": {
+                key: value
+                for key, value in outputs.items()
+                if key != self.OUTPUT_FOLDER
+            },
+        }
+        with open(report_path, "w", encoding="utf-8") as stream:
+            json.dump(report, stream, ensure_ascii=False, indent=2)
+        outputs[self.REPORT] = report_path
 
         multi.pushInfo(self.tr(f"Terrain package completed: {folder}"))
         return outputs
