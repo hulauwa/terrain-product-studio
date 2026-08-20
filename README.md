@@ -150,13 +150,13 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 ## 🚀 Installation
 
 ### Option A: Install via QGIS Plugin Manager
-1. Download the latest `terrain_product_studio-2.3.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Download the latest `terrain_product_studio-2.4.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Open QGIS $\rightarrow$ **Plugins** $\rightarrow$ **Manage and Install Plugins...**
 3. Select **Install from ZIP** $\rightarrow$ choose the downloaded `.zip` file $\rightarrow$ Click **Install Plugin**.
 
 > Do **not** install GitHub's **Code → Download ZIP** archive. It contains the repository wrapper, not an installable QGIS plugin. Use the versioned ZIP under **Releases**; it contains `terrain_product_studio/metadata.txt` at the required location.
 
-> **v2.3.0**: maintainability release — DEM preprocessing, flow-dependent product construction and asynchronous QGIS task lifecycle now live in focused object-oriented services. The v2.2 Processing parameters and output contract remain unchanged.
+> **v2.4.0**: extensibility release — Processing parameters, dock products and dependency planning now share one validated product registry. New products can declare transitive dependencies and flow/TWI requirements without adding planner conditionals; the v2.3 contract remains unchanged.
 
 ### Option B: Manual Installation
 Copy the `terrain_product_studio` directory into your QGIS active profile plugin folder:
@@ -204,6 +204,7 @@ terrain_product_studio/
 │   ├── math_utils.py          # nice_interval, snapping, prefix sanitizing
 │   ├── native_hydrology.py    # D8 routing & Continuous Strahler tracing
 │   ├── pipeline.py            # Product dependency planner
+│   ├── product_registry.py    # Product declarations, validation and discovery
 │   ├── preprocessing.py       # DEM reprojection and ROI clipping service
 │   ├── flow_products.py       # TWI, SPI/STI and hazard product builder
 │   ├── presets.py             # Terrain palettes, cartography themes, industry presets
@@ -225,3 +226,5 @@ terrain_product_studio/
 Licensed under the **GNU General Public License v2.0 or later (GPLv2+)**.
 
 Developed by **Nguyễn Văn Tín** ([@hulauwa](https://github.com/hulauwa)). Contributions, bug reports, and feature requests are warmly welcomed via GitHub Issues.
+
+Contributor and AI-agent product integration steps are documented in [`docs/EXTENDING_PRODUCTS.md`](docs/EXTENDING_PRODUCTS.md).

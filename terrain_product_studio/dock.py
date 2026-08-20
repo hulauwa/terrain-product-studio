@@ -70,6 +70,7 @@ from .core.presets import (
     PALETTE_ORDER,
     TERRAIN_PALETTES,
 )
+from .core.product_registry import DEFAULT_PRODUCT_REGISTRY
 from .core.web_3d_viewer import generate_3d_web_viewer
 from .ui.task_controller import ProcessingTaskController
 
@@ -256,26 +257,13 @@ class TerrainStudioDock(QDockWidget):
         self._product_labels = {}
         # Default setup ticks only a few basemap layers (color relief, hillshade,
         # spot peaks) — everything else is opt-in via Quick Basemap / Select All.
-        definitions = (
-            ("CREATE_COLOR_RELIEF", self.tr("Elevation color relief"), True),
-            ("CREATE_HILLSHADE", self.tr("Hillshade (single light)"), False),
-            ("CREATE_MULTI_HILLSHADE", self.tr("Multidirectional hillshade"), True),
-            ("CREATE_SLOPE", self.tr("Slope (degrees)"), False),
-            ("CREATE_ASPECT", self.tr("Aspect (orientation)"), False),
-            ("CREATE_TRI", self.tr("Terrain Ruggedness Index (TRI)"), False),
-            ("CREATE_TPI", self.tr("Topographic Position Index (TPI)"), False),
-            ("CREATE_ROUGHNESS", self.tr("Roughness"), False),
-            ("CREATE_SPOT_ELEVATIONS", self.tr("Spot elevation peaks (markers)"), True),
-            ("CREATE_SUITABILITY", self.tr("Construction suitability (TCVN)"), False),
-            ("CREATE_LANDSLIDE", self.tr("Landslide hazard & RUSLE LS"), False),
-            ("CREATE_GEOMORPHON", self.tr("Geomorphon terrain forms (10 classes)"), False),
-            ("CREATE_SPI", self.tr("Stream Power Index (SPI)"), False),
-            ("CREATE_STI", self.tr("Sediment Transport Index (STI)"), False),
-            ("CREATE_MULTIHAZARD", self.tr("Multi-hazard composite (landslide + TWI + slope)"), False),
-            ("CREATE_3D_VIEWER", self.tr("Interactive 3D Web Terrain Viewer (HTML)"), False),
-            ("CREATE_INTELLIGENCE_REPORT", self.tr("Topographic Intelligence Report (HTML)"), False),
-            ("CREATE_PROFILE_CURVATURE", self.tr("Profile curvature (flow acceleration)"), False),
-            ("CREATE_PLANFORM_CURVATURE", self.tr("Planform curvature (flow convergence)"), False),
+        definitions = tuple(
+            (
+                product.parameter,
+                self.tr(product.ui_label),
+                product.default_enabled,
+            )
+            for product in DEFAULT_PRODUCT_REGISTRY.product_grid_specs()
         )
         # Industry preset combo: one click ticks a whole job-specific set,
         # leaving every checkbox editable afterwards.

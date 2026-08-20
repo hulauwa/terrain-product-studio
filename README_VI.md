@@ -150,13 +150,13 @@ Xuất ra file HTML tổng hợp (`<prefix>_topographic_intelligence_report.html
 ## 🚀 Hướng Dẫn Cài Đặt
 
 ### Cách 1: Cài đặt qua file ZIP (Khuyến nghị)
-1. Tải file `terrain_product_studio-2.3.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Tải file `terrain_product_studio-2.4.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Trong QGIS, vào menu **Plugins (Tiện ích)** $\rightarrow$ **Manage and Install Plugins... (Quản lý và Cài đặt Tiện ích...)**.
 3. Chọn tab **Install from ZIP (Cài đặt từ ZIP)** $\rightarrow$ Chọn file `.zip` vừa tải $\rightarrow$ Nhấn **Install Plugin**.
 
 > **Không cài** file từ nút **Code → Download ZIP** của GitHub. File đó bọc cả repository nên QGIS không tìm thấy `metadata.txt` đúng vị trí. Hãy dùng file ZIP có phiên bản trong mục **Releases**.
 
-> **v2.3.0**: bản nâng cấp khả năng bảo trì — tiền xử lý DEM, nhóm sản phẩm phụ thuộc dòng chảy và vòng đời task QGIS đã được tách thành các object nhỏ. Tham số Processing và output contract của v2.2 được giữ nguyên.
+> **v2.4.0**: bản mở rộng cuối roadmap — tham số Processing, danh sách sản phẩm trong dock và dependency planner dùng chung một product registry có validation. Có thể khai báo dependency sản phẩm/flow/TWI mà không thêm các nhánh planner rời rạc.
 
 ### Cách 2: Sao chép thủ công vào thư mục Plugins của QGIS
 Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng với hệ điều hành:

@@ -24,6 +24,8 @@ dependencies outside a standard QGIS/GDAL installation.
   contracts. Algorithms orchestrate reusable core services.
 - `terrain_product_studio/core/`: reusable domain modules.
 - `core/pipeline.py`: dependency planner for the one-click processing DAG.
+- `core/product_registry.py`: shared product declarations, dependency graph,
+  validation and explicit extension-module discovery.
 - `core/preprocessing.py`: projected/clipped DEM preparation and typed hand-off.
 - `core/flow_products.py`: flow-dependent product orchestration.
 - `core/map_recipes.py`: logical canvas/layout stacks and raw/smooth selection.
@@ -66,11 +68,11 @@ accumulation raster must match the preprocessed DEM CRS, dimensions and extent.
 
 New analytical product:
 
-1. Put the calculation in a small `core/` service with a clear input/output contract.
-2. Add Processing parameters and outputs in the relevant algorithm.
-3. Add label/preset data in `core/presets.py` and styling in `core/styles.py`.
-4. Add it to layer loading only if it should appear in QGIS.
-5. Add provenance/fitness notes and pure tests.
+1. Read `docs/EXTENDING_PRODUCTS.md` and add a validated `ProductSpec`.
+2. Put the calculation in a small `core/` service with a clear input/output contract.
+3. Add the Processing output and builder integration in the relevant algorithm.
+4. Add styling/layer loading only if it should appear in QGIS.
+5. Add provenance/fitness notes and pure/QGIS tests.
 
 New map type:
 
@@ -86,7 +88,7 @@ Run from repository root:
 ```bash
 python3 -m unittest tests.test_math_utils tests.test_plugin_package \
   tests.test_map_recipes tests.test_pipeline tests.test_flow_products \
-  tests.test_provenance -v
+  tests.test_product_registry tests.test_provenance -v
 python3 -m compileall -q terrain_product_studio tests
 python3 scripts/package_plugin.py
 ```
@@ -105,13 +107,14 @@ failure for `qgis` or `osgeo` is an environment limitation, not a plugin result.
 - The ZIP must have exactly one top-level `terrain_product_studio/` directory.
 - Do not commit generated `dist/`, caches, local profiles or temporary DEM output.
 
-## Suggested phases after 2.3.0
+## Completed roadmap through 2.4.0
 
 - Phase 1 — pipeline correctness: completed in 2.2.0.
 - Phase 2 — maintainability foundation: completed in 2.3.0 with preprocessing,
   flow-product and task-lifecycle services. UI panels can be extracted gradually
   without changing their behavior.
-- Phase 3 — extensibility: product registry with dependency declarations,
-  validation and plugin-style discovery.
-- Phase 4 — quality: QGIS 3.34/3.40/4.x CI matrix, sample DEM golden outputs,
-  layout image regression and translation compilation.
+- Phase 3 — extensibility: completed in 2.4.0 with the product registry,
+  dependency/capability declarations, validation and explicit module discovery.
+- Quality gates now cover registry contracts, dependency golden behavior, release
+  packaging and QGIS 4.x runtime probes. Expanding hosted CI across every supported
+  QGIS build remains ongoing release engineering rather than a product phase.

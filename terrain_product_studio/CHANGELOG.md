@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0 — 2026-08-20
+
+Extensibility and final roadmap release: one validated product catalog shared by the UI, Processing contract and dependency planner.
+
+- Added an ordered `ProductRegistry` and immutable `ProductSpec` declarations for all 21 selectable Processing products and the 19-product dock grid.
+- Product-to-product dependencies and analytical capabilities (`flow_accumulation`, `twi`) are declared with each product and resolved transitively; duplicate identifiers, missing dependencies and cycles fail validation immediately.
+- Processing booleans/defaults, dock labels/order and runtime selection now consume the same registry instead of maintaining three independent lists.
+- Added explicit `register_products(registry)` module discovery for trusted extensions without implicit filesystem scanning.
+- Added registry/discovery/contract tests, a custom-product pipeline test, release-workflow coverage and a dedicated product-extension guide.
+- Preserved every v2.3 Processing parameter, default and output key.
+
 ## 2.3.0 — 2026-08-20
 
 Maintainability release: smaller object-oriented services with the same v2.2 Processing and output contract.

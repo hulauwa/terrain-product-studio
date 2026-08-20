@@ -45,12 +45,21 @@ def run_probe():
         dock = plugin.dock
         if dock is None:
             raise RuntimeError("Plugin did not create its dock")
+        product_keys = list(dock.products)
+        if len(product_keys) != 19:
+            raise RuntimeError(f"Unexpected product count: {len(product_keys)}")
+        if product_keys[-2:] != [
+            "CREATE_PROFILE_CURVATURE",
+            "CREATE_PLANFORM_CURVATURE",
+        ]:
+            raise RuntimeError("Product registry changed the established dock order")
         result.update(
             {
                 "success": True,
                 "dock_visible": dock.isVisible(),
                 "dock_title": dock.windowTitle(),
                 "product_count": len(dock.products),
+                "product_order": product_keys,
                 "provider_available": bool(
                     QgsApplication.processingRegistry().algorithmById(
                         "terrainstudio:buildterrainpackage"

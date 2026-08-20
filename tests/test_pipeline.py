@@ -1,6 +1,7 @@
 import unittest
 
 from terrain_product_studio.core.pipeline import plan_pipeline
+from terrain_product_studio.core.product_registry import ProductRegistry, ProductSpec
 
 
 class PipelinePlanTests(unittest.TestCase):
@@ -64,6 +65,37 @@ class PipelinePlanTests(unittest.TestCase):
             create_twi=True,
             accumulation_available=False,
         )
+        self.assertTrue(plan.run_hydrology)
+
+    def test_discovered_product_dependencies_feed_the_pipeline(self):
+        registry = ProductRegistry(
+            (
+                ProductSpec(
+                    "SLOPE",
+                    "CREATE_SLOPE",
+                    "Slope",
+                    "Slope",
+                    "test",
+                ),
+                ProductSpec(
+                    "CUSTOM_FLOW_INDEX",
+                    "CREATE_CUSTOM_FLOW_INDEX",
+                    "Custom flow index",
+                    "Custom flow index",
+                    "test",
+                    dependencies=frozenset({"SLOPE"}),
+                    capabilities=frozenset({"flow_accumulation"}),
+                ),
+            )
+        ).validate()
+        plan = plan_pipeline(
+            {"CUSTOM_FLOW_INDEX"},
+            create_hydrology=False,
+            create_twi=False,
+            accumulation_available=False,
+            registry=registry,
+        )
+        self.assertEqual(plan.auto_enabled_products, frozenset({"SLOPE"}))
         self.assertTrue(plan.run_hydrology)
 
 

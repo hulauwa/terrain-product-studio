@@ -32,9 +32,9 @@
 
 ## Installation
 
-1. Download `terrain_product_studio-2.3.0.zip` from the GitHub **Releases** page. Do not use GitHub's repository source ZIP.
+1. Download `terrain_product_studio-2.4.0.zip` from the GitHub **Releases** page. Do not use GitHub's repository source ZIP.
 2. In QGIS, navigate to **Plugins → Manage and Install Plugins… → Install from ZIP**.
-3. Select `terrain_product_studio-2.3.0.zip` and click **Install Plugin**.
+3. Select `terrain_product_studio-2.4.0.zip` and click **Install Plugin**.
 4. Access the plugin via **Raster → Terrain Product Studio** or the toolbar terrain icon.
 
 ## License

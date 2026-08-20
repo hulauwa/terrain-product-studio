@@ -37,7 +37,7 @@ class TerrainStudioUiProbe(QgsProcessingAlgorithm):
             from terrain_product_studio.dock import TerrainStudioDock
 
             dock = TerrainStudioDock(None)
-            if len(dock.products) != 15:
+            if len(dock.products) != 19:
                 raise RuntimeError(f"Unexpected product checkbox count: {len(dock.products)}")
             scroll = dock.widget()
             if not isinstance(scroll, QScrollArea):

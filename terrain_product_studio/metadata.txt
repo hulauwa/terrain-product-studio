@@ -2,7 +2,7 @@
 name=Terrain Product Studio
 description=Publication-grade terrain products from a DEM: 20-map color palettes (Classic/Artistic/Environment/Scientific/Dark Terrain), USGS-styled cartography, hydrology, geomorphometry, multi-hazard analysis, GeoPackage bundles, QGIS project export, 3D web viewers and STL/OBJ print models.
 about=Terrain Product Studio turns one elevation raster into a consistent package of publication-ready cartographic and analytical terrain layers: elevation color relief, hillshades, slope, aspect, TRI, TPI, roughness, curvatures, spot elevations, smoothed contours and rivers, geomorphon landforms, SPI/STI, landslide hazard, a multi-hazard composite index, hydrology, an all-in-one GeoPackage bundle, a ready-to-save QGIS project (.qgz) and an interactive 3D web viewer. A smart setup assistant suggests contour intervals and themes from the AOI, 20 map color ramps are grouped Light / Dark / Scientific (Dark Terrain group with elevation-anchored stops), industry presets (urban, agriculture, disaster, mining) pick the right product set in one click, STL/OBJ export prepares the terrain for 3D printing, and a run-history journal reopens past jobs.
-version=2.3.0
+version=2.4.0
 qgisMinimumVersion=3.34
 qgisMaximumVersion=4.99
 author=Nguyễn Văn Tín

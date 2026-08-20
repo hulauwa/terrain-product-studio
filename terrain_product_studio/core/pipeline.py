@@ -8,15 +8,9 @@ explicit and testable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import FrozenSet, Iterable
+from typing import FrozenSet, Iterable, Optional
 
-
-SLOPE_DEPENDENTS = frozenset(
-    {"SUITABILITY", "LANDSLIDE_HAZARD", "SPI", "STI", "MULTIHAZARD"}
-)
-ACCUMULATION_DEPENDENTS = frozenset(
-    {"LANDSLIDE_HAZARD", "SPI", "STI", "MULTIHAZARD"}
-)
+from .product_registry import DEFAULT_PRODUCT_REGISTRY, ProductRegistry
 
 
 @dataclass(frozen=True)
@@ -37,23 +31,26 @@ def plan_pipeline(
     create_hydrology: bool,
     create_twi: bool,
     accumulation_available: bool,
+    registry: Optional[ProductRegistry] = None,
 ) -> PipelinePlan:
     """Resolve the minimal correct pipeline for a product selection."""
 
     requested = frozenset(requested_products)
-    auto_enabled = set()
-    if requested & SLOPE_DEPENDENTS and "SLOPE" not in requested:
-        auto_enabled.add("SLOPE")
-
-    resolved_twi = bool(create_twi or "MULTIHAZARD" in requested)
+    product_registry = registry or DEFAULT_PRODUCT_REGISTRY
+    resolution = product_registry.resolve(requested)
+    effective = set(resolution.effective)
+    resolved_twi = bool(create_twi or "twi" in resolution.capabilities)
     needs_accumulation = bool(
-        requested & ACCUMULATION_DEPENDENTS or resolved_twi
+        "flow_accumulation" in resolution.capabilities or resolved_twi
     )
     run_hydrology = bool(
         create_hydrology or (needs_accumulation and not accumulation_available)
     )
-    if resolved_twi and not run_hydrology and "SLOPE" not in requested:
-        auto_enabled.add("SLOPE")
+    if resolved_twi and not run_hydrology and "SLOPE" not in effective:
+        product_registry.require("SLOPE")
+        effective.add("SLOPE")
+
+    auto_enabled = effective - requested
 
     if run_hydrology:
         accumulation_source = "generated"
@@ -64,7 +61,7 @@ def plan_pipeline(
 
     return PipelinePlan(
         requested_products=requested,
-        effective_products=frozenset(set(requested) | auto_enabled),
+        effective_products=frozenset(effective),
         auto_enabled_products=frozenset(auto_enabled),
         run_hydrology=run_hydrology,
         create_twi=resolved_twi,

@@ -16,6 +16,7 @@ REQUIRED_ARCHIVE_MEMBERS = {
     "terrain_product_studio/metadata.txt",
     "terrain_product_studio/plugin.py",
     "terrain_product_studio/provider.py",
+    "terrain_product_studio/core/product_registry.py",
 }
 
 

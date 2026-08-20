@@ -17,6 +17,7 @@ class PluginPackageTests(unittest.TestCase):
             "dock.py",
             "core/preprocessing.py",
             "core/flow_products.py",
+            "core/product_registry.py",
             "ui/task_controller.py",
             "icons/terrain_studio.png",
         )
@@ -29,7 +30,7 @@ class PluginPackageTests(unittest.TestCase):
         metadata = parser["general"]
         self.assertEqual(metadata.get("hasprocessingprovider"), "yes")
         self.assertEqual(metadata.get("qgisminimumversion"), "3.34")
-        self.assertEqual(metadata.get("version"), "2.3.0")
+        self.assertEqual(metadata.get("version"), "2.4.0")
         self.assertEqual(metadata.get("experimental"), "False")
         self.assertEqual(metadata.get("license"), "GPLv2")
 

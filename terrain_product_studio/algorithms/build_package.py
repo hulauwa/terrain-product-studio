@@ -35,6 +35,7 @@ from ..core.math_utils import sanitize_prefix, unique_path
 from ..core.flow_products import FlowProductBuilder, FlowProductError
 from ..core.pipeline import plan_pipeline
 from ..core.preprocessing import DemPreprocessor
+from ..core.product_registry import DEFAULT_PRODUCT_REGISTRY
 from ..core.presets import (
     DEFAULT_PALETTE,
     PALETTE_ORDER,
@@ -286,30 +287,14 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         # Default setup ticks only the basemap products (color relief,
         # multidirectional hillshade, contours, spot peaks); everything else
         # is opt-in.
-        products = (
-            (self.CREATE_COLOR_RELIEF, self.tr("Elevation color relief"), True),
-            (self.CREATE_HILLSHADE, self.tr("Standard hillshade"), False),
-            (self.CREATE_MULTI_HILLSHADE, self.tr("Multidirectional hillshade"), True),
-            (self.CREATE_SLOPE, self.tr("Slope in degrees"), False),
-            (self.CREATE_ASPECT, self.tr("Aspect"), False),
-            (self.CREATE_TRI, self.tr("Terrain Ruggedness Index"), False),
-            (self.CREATE_TPI, self.tr("Topographic Position Index"), False),
-            (self.CREATE_ROUGHNESS, self.tr("Roughness"), False),
-            (self.CREATE_PROFILE_CURVATURE, self.tr("Profile curvature"), False),
-            (self.CREATE_PLANFORM_CURVATURE, self.tr("Planform curvature"), False),
-            (self.CREATE_CONTOURS, self.tr("Contours"), True),
-            (self.CREATE_SPOT_ELEVATIONS, self.tr("Spot elevation peaks"), True),
-            (self.CREATE_SUITABILITY, self.tr("Slope construction suitability"), False),
-            (self.CREATE_LANDSLIDE, self.tr("Landslide hazard & RUSLE LS factor"), False),
-            (self.CREATE_GEOMORPHON, self.tr("Geomorphon terrain forms (10 classes)"), False),
-            (self.CREATE_SPI, self.tr("Stream Power Index (SPI)"), False),
-            (self.CREATE_STI, self.tr("Sediment Transport Index (STI)"), False),
-            (self.CREATE_MULTIHAZARD, self.tr("Multi-hazard composite index (landslide + TWI + slope)"), False),
-            (self.CREATE_3D_VIEWER, self.tr("Interactive 3D Web Terrain Viewer (HTML)"), False),
-            (self.CREATE_INTELLIGENCE_REPORT, self.tr("Topographic Intelligence Report (HTML)"), False),
-        )
-        for name, label, default in products:
-            self.addParameter(QgsProcessingParameterBoolean(name, label, defaultValue=default))
+        for product in DEFAULT_PRODUCT_REGISTRY.specs(section="terrain"):
+            self.addParameter(
+                QgsProcessingParameterBoolean(
+                    product.parameter,
+                    self.tr(product.processing_label),
+                    defaultValue=product.default_enabled,
+                )
+            )
 
         self.addParameter(
             QgsProcessingParameterRasterLayer(
@@ -419,11 +404,12 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=0.2,
             )
         )
+        bundle_product = DEFAULT_PRODUCT_REGISTRY.require(self.BUNDLE)
         self.addParameter(
             QgsProcessingParameterBoolean(
-                self.CREATE_BUNDLE,
-                self.tr("Export all products to a single GeoPackage bundle"),
-                defaultValue=True,
+                bundle_product.parameter,
+                self.tr(bundle_product.processing_label),
+                defaultValue=bundle_product.default_enabled,
             )
         )
         self.addParameter(
@@ -668,29 +654,10 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         creation_options = self._creation_options(compression)
 
         selected = {
-            self.COLOR_RELIEF: self.parameterAsBool(parameters, self.CREATE_COLOR_RELIEF, context),
-            self.HILLSHADE: self.parameterAsBool(parameters, self.CREATE_HILLSHADE, context),
-            self.MULTI_HILLSHADE: self.parameterAsBool(
-                parameters, self.CREATE_MULTI_HILLSHADE, context
-            ),
-            self.SLOPE: self.parameterAsBool(parameters, self.CREATE_SLOPE, context),
-            self.ASPECT: self.parameterAsBool(parameters, self.CREATE_ASPECT, context),
-            self.TRI: self.parameterAsBool(parameters, self.CREATE_TRI, context),
-            self.TPI: self.parameterAsBool(parameters, self.CREATE_TPI, context),
-            self.ROUGHNESS: self.parameterAsBool(parameters, self.CREATE_ROUGHNESS, context),
-            self.PROFILE_CURVATURE: self.parameterAsBool(parameters, self.CREATE_PROFILE_CURVATURE, context),
-            self.PLANFORM_CURVATURE: self.parameterAsBool(parameters, self.CREATE_PLANFORM_CURVATURE, context),
-            self.CONTOURS: self.parameterAsBool(parameters, self.CREATE_CONTOURS, context),
-            self.SPOT_ELEVATIONS: self.parameterAsBool(parameters, self.CREATE_SPOT_ELEVATIONS, context),
-            self.SUITABILITY: self.parameterAsBool(parameters, self.CREATE_SUITABILITY, context),
-            self.LANDSLIDE_HAZARD: self.parameterAsBool(parameters, self.CREATE_LANDSLIDE, context),
-            self.GEOMORPHON: self.parameterAsBool(parameters, self.CREATE_GEOMORPHON, context),
-            self.SPI: self.parameterAsBool(parameters, self.CREATE_SPI, context),
-            self.STI: self.parameterAsBool(parameters, self.CREATE_STI, context),
-            self.MULTIHAZARD: self.parameterAsBool(parameters, self.CREATE_MULTIHAZARD, context),
-            self.BUNDLE: self.parameterAsBool(parameters, self.CREATE_BUNDLE, context),
-            self.VIEWER_3D: self.parameterAsBool(parameters, self.CREATE_3D_VIEWER, context),
-            self.INTELLIGENCE_REPORT: self.parameterAsBool(parameters, self.CREATE_INTELLIGENCE_REPORT, context),
+            product.key: self.parameterAsBool(
+                parameters, product.parameter, context
+            )
+            for product in DEFAULT_PRODUCT_REGISTRY.specs()
         }
         if not any(selected.values()) and not create_hydrology_requested:
             raise QgsProcessingException(self.tr("Select at least one terrain product."))
