@@ -1,0 +1,37 @@
+name: Build QGIS plugin release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run QGIS-independent tests
+        run: >-
+          python -m unittest
+          tests.test_math_utils
+          tests.test_plugin_package
+          tests.test_map_recipes
+          tests.test_provenance -v
+      - name: Build and validate installable ZIP
+        run: python scripts/package_plugin.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terrain-product-studio-qgis-plugin
+          path: dist/*.zip
+      - name: Attach ZIP to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip

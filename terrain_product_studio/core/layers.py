@@ -7,6 +7,7 @@ import os
 from qgis.PyQt.QtGui import QColor
 from qgis.core import QgsProject, QgsRasterLayer, QgsVectorLayer
 
+from .map_recipes import resolve_recipe_keys
 from .presets import CARTOGRAPHY_PRESETS, OUTPUT_LABELS
 from .styles import (
     apply_aspect_style,
@@ -80,41 +81,49 @@ def add_terrain_results(
     failed = []
     layers = {}
     nodes = {}
+    available_result_keys = {
+        key
+        for key, value in results.items()
+        if _source_path(value) and os.path.exists(_source_path(value))
+    }
+    visible_keys = set(
+        resolve_recipe_keys(available_result_keys, cartography_preset, target="canvas")
+    )
 
     raster_groups = {
-        "COLOR_RELIEF": (base_group, True),
-        "HILLSHADE": (base_group, "MULTI_HILLSHADE" not in results),
-        "MULTI_HILLSHADE": (base_group, True),
-        "SLOPE": (analysis_group, False),
-        "ASPECT": (analysis_group, False),
-        "TRI": (analysis_group, False),
-        "TPI": (analysis_group, False),
-        "ROUGHNESS": (analysis_group, False),
-        "PROFILE_CURVATURE": (analysis_group, False),
-        "PLANFORM_CURVATURE": (analysis_group, False),
-        "FLOW_ACCUMULATION": (hydro_group, False),
-        "FLOW_DIRECTION": (hydro_group, False),
-        "STREAM_RASTER": (hydro_group, False),
-        "BASINS": (hydro_group, False),
-        "TWI": (hydro_group, False),
-        "SUITABILITY": (analysis_group, False),
-        "LANDSLIDE_HAZARD": (analysis_group, False),
-        "LS_FACTOR": (analysis_group, False),
-        "GEOMORPHON": (analysis_group, False),
-        "SPI": (hydro_group, False),
-        "STI": (hydro_group, False),
-        "MULTIHAZARD": (analysis_group, False),
-        "FILLED_DEM": (quality_group, False),
-        "WORKING_DEM": (quality_group, False),
+        "COLOR_RELIEF": base_group,
+        "HILLSHADE": base_group,
+        "MULTI_HILLSHADE": base_group,
+        "SLOPE": analysis_group,
+        "ASPECT": analysis_group,
+        "TRI": analysis_group,
+        "TPI": analysis_group,
+        "ROUGHNESS": analysis_group,
+        "PROFILE_CURVATURE": analysis_group,
+        "PLANFORM_CURVATURE": analysis_group,
+        "FLOW_ACCUMULATION": hydro_group,
+        "FLOW_DIRECTION": hydro_group,
+        "STREAM_RASTER": hydro_group,
+        "BASINS": hydro_group,
+        "TWI": hydro_group,
+        "SUITABILITY": analysis_group,
+        "LANDSLIDE_HAZARD": analysis_group,
+        "LS_FACTOR": analysis_group,
+        "GEOMORPHON": analysis_group,
+        "SPI": hydro_group,
+        "STI": hydro_group,
+        "MULTIHAZARD": analysis_group,
+        "FILLED_DEM": quality_group,
+        "WORKING_DEM": quality_group,
     }
-    for key, (group, visible) in raster_groups.items():
+    for key, group in raster_groups.items():
         if key not in results:
             continue
         path = _source_path(results[key])
         if not path or not os.path.exists(path):
             failed.append(path or key)
             continue
-        layer, node = _add_raster(project, group, key, path, visible)
+        layer, node = _add_raster(project, group, key, path, key in visible_keys)
         if layer is None:
             failed.append(path)
             continue
@@ -127,8 +136,10 @@ def add_terrain_results(
         contour = QgsVectorLayer(path, OUTPUT_LABELS["CONTOURS"], "ogr")
         if contour.isValid():
             project.addMapLayer(contour, False)
-            contour_group.addLayer(contour)
+            node = contour_group.addLayer(contour)
+            node.setItemVisibilityChecked("CONTOURS" in visible_keys)
             layers["CONTOURS"] = contour
+            nodes["CONTOURS"] = node
             loaded += 1
         else:
             failed.append(path)
@@ -138,8 +149,10 @@ def add_terrain_results(
         smooth_contour = QgsVectorLayer(path, OUTPUT_LABELS["CONTOURS_SMOOTH"], "ogr")
         if smooth_contour.isValid():
             project.addMapLayer(smooth_contour, False)
-            contour_group.addLayer(smooth_contour)
+            node = contour_group.addLayer(smooth_contour)
+            node.setItemVisibilityChecked("CONTOURS_SMOOTH" in visible_keys)
             layers["CONTOURS_SMOOTH"] = smooth_contour
+            nodes["CONTOURS_SMOOTH"] = node
             loaded += 1
         else:
             failed.append(path)
@@ -149,8 +162,10 @@ def add_terrain_results(
         spots = QgsVectorLayer(path, OUTPUT_LABELS["SPOT_ELEVATIONS"], "ogr")
         if spots.isValid():
             project.addMapLayer(spots, False)
-            contour_group.insertLayer(0, spots)
+            node = contour_group.insertLayer(0, spots)
+            node.setItemVisibilityChecked("SPOT_ELEVATIONS" in visible_keys)
             layers["SPOT_ELEVATIONS"] = spots
+            nodes["SPOT_ELEVATIONS"] = node
             loaded += 1
         else:
             failed.append(path)
@@ -162,8 +177,9 @@ def add_terrain_results(
             project.addMapLayer(ridges, False)
             node = hydro_group.addLayer(ridges)
             # Working-data hydrology: loaded but hidden in the default basemap.
-            node.setItemVisibilityChecked(False)
+            node.setItemVisibilityChecked("RIDGES" in visible_keys)
             layers["RIDGES"] = ridges
+            nodes["RIDGES"] = node
             loaded += 1
         else:
             failed.append(path)
@@ -174,8 +190,9 @@ def add_terrain_results(
         if streams.isValid():
             project.addMapLayer(streams, False)
             node = hydro_group.insertLayer(0, streams)
-            node.setItemVisibilityChecked(False)
+            node.setItemVisibilityChecked("STREAMS" in visible_keys)
             layers["STREAMS"] = streams
+            nodes["STREAMS"] = node
             loaded += 1
         else:
             failed.append(path)
@@ -186,11 +203,23 @@ def add_terrain_results(
         if smooth_streams.isValid():
             project.addMapLayer(smooth_streams, False)
             node = hydro_group.insertLayer(1, smooth_streams)
-            node.setItemVisibilityChecked(False)
+            node.setItemVisibilityChecked("STREAMS_SMOOTH" in visible_keys)
             layers["STREAMS_SMOOTH"] = smooth_streams
+            nodes["STREAMS_SMOOTH"] = node
             loaded += 1
         else:
             failed.append(path)
+
+    # If a declared smooth output could not be opened, fall back to the valid
+    # raw source instead of leaving both variants hidden.
+    for raw_key, smooth_key in (
+        ("CONTOURS", "CONTOURS_SMOOTH"),
+        ("STREAMS", "STREAMS_SMOOTH"),
+    ):
+        if smooth_key not in layers and raw_key in nodes:
+            nodes[raw_key].setItemVisibilityChecked(
+                raw_key in visible_keys or smooth_key in visible_keys
+            )
 
     if "COLOR_RELIEF" in nodes:
         base_group.insertChildNode(len(base_group.children()), nodes["COLOR_RELIEF"].clone())
@@ -269,4 +298,3 @@ def add_terrain_results(
     if return_layers:
         return loaded, failed, layers
     return loaded, failed
-

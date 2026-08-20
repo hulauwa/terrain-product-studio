@@ -198,6 +198,12 @@ def format_dem_report(info: Dict[str, Any]) -> str:
         f"• Recommended Map Scale: {info.get('recommended_map_scale', 'Auto')}",
         f"• Recommended Contour Interval: {info['recommended_contour_interval']:g} m (Index: {info['recommended_contour_interval']*5:g} m)",
         f"• Spot Elevation Density: {info.get('recommended_peak_density', 'Standard')}",
+        "",
+        "🔎 PROCESSING ASSUMPTIONS:",
+        "• Geographic DEMs are reprojected to the suggested metric CRS with bilinear resampling.",
+        "• Terrain derivatives inherit the DEM resolution, vertical accuracy and NoData quality.",
+        "• Smoothed contours/rivers are display copies; raw vectors remain available for analysis.",
+        "• Hydrology-dependent risk products require real flow accumulation for analytical use.",
     ]
     if info["warnings"]:
         lines.append("")
@@ -206,4 +212,3 @@ def format_dem_report(info: Dict[str, Any]) -> str:
     else:
         lines.extend(("", "No blocking issue was detected."))
     return "\n".join(lines)
-

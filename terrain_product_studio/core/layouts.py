@@ -27,7 +27,9 @@ from qgis.core import (
 )
 
 from .math_utils import nice_interval, sanitize_prefix, unique_path
+from .map_recipes import resolve_recipe_keys
 from .presets import CARTOGRAPHY_PRESETS
+from .qgis_compat import map_grid_line_border_style
 
 
 def _qt_alignment(name):
@@ -70,22 +72,11 @@ def _add_label(layout, text, x, y, width, height, font, size, color, bold=False)
     return label
 
 
-def _map_layers(layers):
+def _map_layers(layers, preset_key):
     """Return the intentional cartographic stack, from top to bottom."""
 
-    return [
-        layers[key]
-        for key in (
-            "SPOT_ELEVATIONS",
-            "STREAMS",
-            "RIDGES",
-            "CONTOURS",
-            "MULTI_HILLSHADE",
-            "HILLSHADE",
-            "COLOR_RELIEF",
-        )
-        if key in layers and layers[key] is not None
-    ]
+    keys = resolve_recipe_keys(layers.keys(), preset_key, target="layout")
+    return [layers[key] for key in keys if layers.get(key) is not None]
 
 
 def _reference_layer(layers):
@@ -93,7 +84,9 @@ def _reference_layer(layers):
         "COLOR_RELIEF",
         "MULTI_HILLSHADE",
         "HILLSHADE",
+        "CONTOURS_SMOOTH",
         "CONTOURS",
+        "STREAMS_SMOOTH",
         "STREAMS",
         "WORKING_DEM",
     ):
@@ -148,12 +141,12 @@ def create_terrain_layout(
     if paper_key in paper_sizes:
         width_a, height_a = paper_sizes[paper_key]
         if orientation_key == "portrait":
-            page_width, page_height = height_a, width_a
-        elif orientation_key == "landscape":
             page_width, page_height = width_a, height_a
+        elif orientation_key == "landscape":
+            page_width, page_height = height_a, width_a
         else:  # auto orientation keeps the bounding-box choice
             page_width, page_height = (
-                (width_a, height_a) if landscape else (height_a, width_a)
+                (height_a, width_a) if landscape else (width_a, height_a)
             )
     else:
         page_width, page_height = (297.0, 210.0) if landscape else (210.0, 297.0)
@@ -265,7 +258,7 @@ def create_terrain_layout(
     extent.scale(1.035)
     map_item.setExtent(extent)
 
-    map_layers = _map_layers(layers)
+    map_layers = _map_layers(layers, preset_key)
     if map_layers:
         map_item.setLayers(map_layers)
         map_item.setKeepLayerSet(True)
@@ -281,7 +274,7 @@ def create_terrain_layout(
         grid.setIntervalY(interval)
         grid.setGridLineColor(QColor(preset["grid"] + "55"))
         grid.setGridLineWidth(0.12)
-        grid.setFrameStyle(Qgis.MapGridFrameStyle.LineBorder)
+        grid.setFrameStyle(map_grid_line_border_style())
         grid.setFramePenColor(QColor(preset["ink"]))
         grid.setFramePenSize(0.30)
         grid.setAnnotationEnabled(True)

@@ -1,6 +1,6 @@
 # 🏔️ Hướng Dẫn & Tài Liệu Kỹ Thuật: Terrain Product Studio
 
-[![QGIS 3 & 4 Compatible](https://img.shields.io/badge/QGIS-3.28%2B%20%7C%204.x%20(Qt6)-brightgreen.svg)](https://qgis.org)
+[![QGIS 3 & 4 Compatible](https://img.shields.io/badge/QGIS-3.34%2B%20%7C%204.x%20(Qt6)-brightgreen.svg)](https://qgis.org)
 [![Tác giả](https://img.shields.io/badge/T%C3%A1c%20gi%E1%BA%A3-Nguy%E1%BB%85n%20V%C4%83n%20T%C3%ADn-blueviolet.svg)](https://github.com/hulauwa)
 [![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2%2B-orange.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
 
@@ -93,6 +93,7 @@
   - *Đường đồng mức chính (Index)*: $0.35\text{ mm}$, nét đậm, kèm nhãn số độ cao dọc đường mức (mỗi 5 đường).
   - *Đường đồng mức cái (Master)*: $0.55\text{ mm}$, phân ranh giới các khoảng cao đều lớn.
 - **Thư viện 20 bảng màu**: phân tầng màu cao độ từ **Classic** (USGS Classic, Natural Earth, Swiss Topo), **Artistic** (Imhof, Vintage Atlas, Copper Relief), **Environment** (Alpine, Desert, Tropical, Arctic), **Scientific** (Viridis, Turbo, Grayscale, Spectral) và **Dark Terrain** (Midnight Terrain, Dark Forest, Dark Alpine, Dark Copper, Dark Volcano, Dark Oceanic) — thang màu tối dùng mốc độ cao tuyệt đối và kết hợp theme Night Dark (hillshade 45%, nền `#090B0D`, contour & sông màu cyan).
+- **Kiểu bản đồ sáng tạo**: **Engineering Blueprint** tạo bản vẽ kỹ thuật nền xanh navy/nét cyan; **Minimal Contour Poster** chỉ giữ đồng mức, thủy hệ và điểm cao thiết yếu. Lớp smooth thay lớp raw trên bản đồ, nhưng raw vẫn được giữ lại và ẩn để phân tích.
 - **Điểm độ cao đỉnh núi (Spot Elevation Peaks)**: Lọc tự động các đỉnh núi nổi bật theo độ nhô địa hình (prominence) và khoảng cách yên ngựa (col separation), kèm **ngưỡng % biên độ cao độ** (mặc định 80%) chỉ giữ lại những đỉnh đáng dán nhãn.
 - **Phân tầng màu cao độ (Color Relief) & Bóng đổ đa hướng (Multi-directional Hillshade)**: Kết hợp 4 hướng chiếu sáng ($225^\circ, 270^\circ, 315^\circ, 360^\circ$) giúp địa hình nổi khối 3D rõ nét, không bị khuất bóng.
 - **Logic bản đồ chuẩn USA**: nhãn lưới tọa độ nằm ngoài khung bản đồ và luôn ngang (không xoay theo mép khung); lớp raster không bao giờ mang nhãn (chỉ lớp vector đồng mức / điểm đỉnh được gán nhãn); tên lớp cartography theo quy ước đặt tên USGS.
@@ -148,11 +149,13 @@ Xuất ra file HTML tổng hợp (`<prefix>_topographic_intelligence_report.html
 ## 🚀 Hướng Dẫn Cài Đặt
 
 ### Cách 1: Cài đặt qua file ZIP (Khuyến nghị)
-1. Tải file `terrain_product_studio-2.1.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Tải file `terrain_product_studio-2.1.1.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Trong QGIS, vào menu **Plugins (Tiện ích)** $\rightarrow$ **Manage and Install Plugins... (Quản lý và Cài đặt Tiện ích...)**.
 3. Chọn tab **Install from ZIP (Cài đặt từ ZIP)** $\rightarrow$ Chọn file `.zip` vừa tải $\rightarrow$ Nhấn **Install Plugin**.
 
-> **v2.1.0**: bản phát hành cartography & quy trình — thư viện 20 bảng màu với nhóm **Dark Terrain** thực thụ (thang màu tối theo mốc độ cao, tự chuyển theme Night Dark), ngưỡng % điểm đỉnh, **xuất project QGIS (.qgz)** một chạm, layout không còn tự mở, nền bản đồ mặc định gọn nhẹ, sông màu hydro-blue/cyan, đồng mức rõ hơn, nhãn lưới chuẩn USA (ngoài khung, chữ ngang). (bản 2.0.0 thêm trợ lý thiết lập thông minh, làm trơn Chaikin/Douglas–Peucker, geomorphon/SPI/STI, đa hiểm họa tổng hợp, gói GeoPackage, xuất STL/OBJ, preset ngành và lịch sử chạy.)
+> **Không cài** file từ nút **Code → Download ZIP** của GitHub. File đó bọc cả repository nên QGIS không tìm thấy `metadata.txt` đúng vị trí. Hãy dùng file ZIP có phiên bản trong mục **Releases**.
+
+> **v2.1.1**: bản ổn định — bỏ cờ experimental, sửa layout trên QGIS 3.x, kiểm tra cấu trúc ZIP trước khi phát hành, ưu tiên lớp đã làm trơn và thêm hai kiểu bản đồ sáng tạo.
 
 ### Cách 2: Sao chép thủ công vào thư mục Plugins của QGIS
 Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng với hệ điều hành:

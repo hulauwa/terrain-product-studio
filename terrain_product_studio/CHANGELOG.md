@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.1 — 2026-08-20
+
+Stable packaging and cartography hotfix.
+
+- Removed the experimental flag and added release-archive validation so every installable ZIP has exactly one `terrain_product_studio/` root and includes `metadata.txt` plus the plugin entry points.
+- Fixed print-layout grid frames on QGIS 3.x while retaining QGIS 4 scoped-enum compatibility.
+- Fixed explicit A-series portrait/landscape page orientation.
+- Added map recipes which prefer smoothed contours and rivers whenever available, while preserving raw analytical layers as hidden source data.
+- Added Engineering Blueprint and Minimal Contour Poster map styles.
+- Processing reports and DEM inspection now expose source/preprocessing choices and analytical assumptions.
+
 ## 2.1.0 — 2026-08-18
 
 Cartography & workflow release: a real palette library, cleaner USA-standard maps, and a shareable QGIS project.

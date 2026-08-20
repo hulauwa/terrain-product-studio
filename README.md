@@ -1,6 +1,6 @@
 # 🏔️ Terrain Product Studio
 
-[![QGIS 3 & 4 Compatible](https://img.shields.io/badge/QGIS-3.28%2B%20%7C%204.x%20(Qt6)-brightgreen.svg)](https://qgis.org)
+[![QGIS 3 & 4 Compatible](https://img.shields.io/badge/QGIS-3.34%2B%20%7C%204.x%20(Qt6)-brightgreen.svg)](https://qgis.org)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
 [![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2%2B-orange.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
 [![Author](https://img.shields.io/badge/Author-Nguy%E1%BB%85n%20V%C4%83n%20T%C3%ADn-blueviolet.svg)](https://github.com/hulauwa)
@@ -88,6 +88,7 @@
   - *Index Contours*: $0.35\text{ mm}$ bold lines with elevation labels every 5th line.
   - *Master Contours*: $0.55\text{ mm}$ prominent boundary lines.
 - **20-Map Palette Library**: color relief from **Classic** (USGS Classic, Natural Earth, Swiss Topo), **Artistic** (Imhof, Vintage Atlas, Copper Relief), **Environment** (Alpine, Desert, Tropical, Arctic), **Scientific** (Viridis, Turbo, Grayscale, Spectral) and **Dark Terrain** (Midnight Terrain, Dark Forest, Dark Alpine, Dark Copper, Dark Volcano, Dark Oceanic) — dark ramps use elevation-anchored stops and pair with the Night Dark theme (45% hillshade, `#090B0D` canvas, cyan contours & rivers).
+- **Creative Map Recipes**: **Engineering Blueprint** builds a navy/cyan technical linework map, while **Minimal Contour Poster** keeps only the essential contour, water and spot-elevation layers. Smoothed vectors replace raw copies in the visible stack; raw data remains loaded but hidden.
 - **Spot Elevation Peaks**: Morphologically isolated local summits filtered by minimum prominence and col distance, plus a **relief-percent threshold** (default top 80% of the elevation range) that keeps only the summits worth labeling; styled with elevation badges.
 - **Hypsometric Color Relief & Multidirectional Hillshade**: 4-azimuth blended lighting ($225^\circ, 270^\circ, 315^\circ, 360^\circ$) eliminates directional shadow bias.
 - **USA-Standard Map Logic**: grid annotations sit outside the map frame and always read horizontal; raster layers never carry labels (labeling stays on contour / spot-elevation vectors); cartographic layer names follow USGS naming conventions.
@@ -148,11 +149,13 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 ## 🚀 Installation
 
 ### Option A: Install via QGIS Plugin Manager
-1. Download the latest `terrain_product_studio-2.1.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Download the latest `terrain_product_studio-2.1.1.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Open QGIS $\rightarrow$ **Plugins** $\rightarrow$ **Manage and Install Plugins...**
 3. Select **Install from ZIP** $\rightarrow$ choose the downloaded `.zip` file $\rightarrow$ Click **Install Plugin**.
 
-> **v2.1.0**: cartography & workflow release — 20-map palette library with a true **Dark Terrain** group (elevation-anchored dark ramps that auto-switch to the Night Dark theme), peak-point relief-percent threshold, one-click **QGIS project (.qgz)** export, layouts no longer auto-open, minimal default basemap, hydro-blue/cyan river ramps, clearer contours, and USA-standard grid labels (outside frame, horizontal). (v2.0.0 added the smart setup assistant, Chaikin/Douglas–Peucker smoothing, geomorphon/SPI/STI, multi-hazard composite, GeoPackage bundle, STL/OBJ export, industry presets and run history.)
+> Do **not** install GitHub's **Code → Download ZIP** archive. It contains the repository wrapper, not an installable QGIS plugin. Use the versioned ZIP under **Releases**; it contains `terrain_product_studio/metadata.txt` at the required location.
+
+> **v2.1.1**: stable packaging and layout hotfix — removes the experimental flag, restores QGIS 3.x grid-frame compatibility, validates release ZIP structure, prefers smoothed display layers, and adds two creative map recipes.
 
 ### Option B: Manual Installation
 Copy the `terrain_product_studio` directory into your QGIS active profile plugin folder:

@@ -3,13 +3,23 @@
 import os
 import shutil
 import tempfile
-import numpy as np
-from osgeo import gdal, osr
+import unittest
 
-from terrain_product_studio.core.native_hydrology import calculate_complete_hydrology
-from terrain_product_studio.core.thematic_terrain import calculate_slope_suitability, calculate_landslide_hazard
-from terrain_product_studio.core.web_3d_viewer import generate_3d_web_viewer
-from terrain_product_studio.core.intelligence_report import generate_intelligence_report
+try:
+    import numpy as np
+    from osgeo import gdal, osr
+
+    from terrain_product_studio.core.intelligence_report import generate_intelligence_report
+    from terrain_product_studio.core.native_hydrology import calculate_complete_hydrology
+    from terrain_product_studio.core.thematic_terrain import (
+        calculate_landslide_hazard,
+        calculate_slope_suitability,
+    )
+    from terrain_product_studio.core.web_3d_viewer import generate_3d_web_viewer
+
+    QGIS_GDAL_AVAILABLE = True
+except ModuleNotFoundError:
+    QGIS_GDAL_AVAILABLE = False
 
 
 def create_synthetic_dem(path, width=80, height=80):
@@ -115,5 +125,14 @@ def run_all_tests():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+@unittest.skipUnless(
+    QGIS_GDAL_AVAILABLE,
+    "Requires the NumPy/GDAL modules bundled with the QGIS Python runtime.",
+)
+class NewFeaturesIntegrationTests(unittest.TestCase):
+    def test_complete_product_chain(self):
+        run_all_tests()
+
+
 if __name__ == "__main__":
-    run_all_tests()
+    unittest.main()

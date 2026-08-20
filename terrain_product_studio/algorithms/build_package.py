@@ -43,6 +43,7 @@ from ..core.presets import (
 )
 from ..core import plugin_version
 from ..core.qgis_compat import all_raster_statistics_flag
+from ..core.provenance import analytical_assumptions, build_run_provenance
 from ..core.smoothing import smooth_geometries
 from ..core.spot_elevations import extract_spot_elevations
 from ..core.geomorphon import classify_geomorphon
@@ -524,6 +525,10 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         spot_pct = self.parameterAsInt(parameters, self.SPOT_PCT, context)
         geomorphon_radius_m = self.parameterAsDouble(parameters, self.GEOMORPHON_RADIUS_M, context)
         geomorphon_tolerance = self.parameterAsDouble(parameters, self.GEOMORPHON_TOLERANCE, context)
+        smoothing_index = self.parameterAsEnum(parameters, self.SMOOTHING, context)
+        simplify_tolerance = self.parameterAsDouble(
+            parameters, self.SIMPLIFY_TOLERANCE, context
+        )
         accumulation_input = None
         accumulation_layer = self.parameterAsRasterLayer(parameters, self.ACCUMULATION, context)
         if accumulation_layer is not None and accumulation_layer.isValid():
@@ -602,6 +607,7 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         warnings.extend(source_info["warnings"])
         working_dem = source
         working_crs = source.crs()
+        applied_clip_extent = None
 
         if source.crs().isGeographic():
             if not auto_reproject:
@@ -674,6 +680,12 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                             if os.path.exists(clipped_path):
                                 working_dem = clipped_path
                                 outputs[self.WORKING_DEM] = working_dem
+                                applied_clip_extent = [
+                                    clipped_rect.xMinimum(),
+                                    clipped_rect.yMinimum(),
+                                    clipped_rect.xMaximum(),
+                                    clipped_rect.yMaximum(),
+                                ]
                                 multi.pushInfo(self.tr("Successfully clipped DEM to selected ROI extent."))
                     except Exception as e:
                         warnings.append(f"GDAL Translate ROI clip notice: {e}")
@@ -697,6 +709,12 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                             if os.path.exists(clipped_path):
                                 working_dem = clipped_path
                                 outputs[self.WORKING_DEM] = working_dem
+                                applied_clip_extent = [
+                                    clipped_rect.xMinimum(),
+                                    clipped_rect.yMinimum(),
+                                    clipped_rect.xMaximum(),
+                                    clipped_rect.yMaximum(),
+                                ]
                         except Exception as e:
                             warnings.append(f"ROI Extent clip notice: {e}")
 
@@ -850,10 +868,6 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         # pre-pass) on a display-only contours file. The raw contours keep
         # their exact coordinates for analytical use.
         if selected[self.CONTOURS] and outputs.get(self.CONTOURS):
-            smoothing_index = self.parameterAsEnum(parameters, self.SMOOTHING, context)
-            simplify_tolerance = self.parameterAsDouble(
-                parameters, self.SIMPLIFY_TOLERANCE, context
-            )
             if smoothing_index > 0 or simplify_tolerance > 0:
                 if not multi.isCanceled():
                     multi.setCurrentStep(current_step)
@@ -1139,6 +1153,23 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 "vertical_exaggeration": vertical_exaggeration,
                 "zevenbergen_thorne": zevenbergen,
             },
+            "provenance": build_run_provenance(
+                source_info,
+                source_path=source.source(),
+                source_band=band,
+                source_crs=source.crs().authid() or source.crs().description(),
+                working_crs=working_crs.authid() or working_crs.description(),
+                auto_reproject=auto_reproject,
+                compression=compression,
+                clip_extent=applied_clip_extent,
+                smoothing_iterations=smoothing_index,
+                simplify_tolerance=simplify_tolerance,
+            ),
+            "analytical_assumptions": analytical_assumptions(
+                (key for key, enabled in selected.items() if enabled),
+                accumulation_supplied=bool(accumulation_input),
+                smoothing_iterations=smoothing_index,
+            ),
             "warnings": warnings,
             "outputs": {key: value for key, value in outputs.items() if key != self.OUTPUT_FOLDER},
         }
