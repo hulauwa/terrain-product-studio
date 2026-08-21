@@ -20,7 +20,7 @@ from .math_utils import (
     suggest_contour_interval,
     utm_epsg_for_lon_lat,
 )
-from .qgis_compat import all_raster_statistics_flag
+from .qgis_compat import raster_band_statistics
 
 
 def _robust_range(layer, band: int, fallback: Tuple[float, float]) -> Tuple[float, float]:
@@ -65,9 +65,9 @@ def inspect_dem_layer(layer, band: int = 1, raster_outputs: int = 8) -> Dict[str
         raise ValueError(f"Band {band} is outside the raster band range.")
 
     provider = layer.dataProvider()
-    stats = provider.bandStatistics(
+    stats = raster_band_statistics(
+        provider,
         band,
-        all_raster_statistics_flag(),
         layer.extent(),
         250000,
     )

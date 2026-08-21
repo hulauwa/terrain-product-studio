@@ -107,7 +107,7 @@ failure for `qgis` or `osgeo` is an environment limitation, not a plugin result.
 - The ZIP must have exactly one top-level `terrain_product_studio/` directory.
 - Do not commit generated `dist/`, caches, local profiles or temporary DEM output.
 
-## Completed roadmap through 2.4.0
+## Completed roadmap through 2.5.0
 
 - Phase 1 — pipeline correctness: completed in 2.2.0.
 - Phase 2 — maintainability foundation: completed in 2.3.0 with preprocessing,
@@ -115,6 +115,9 @@ failure for `qgis` or `osgeo` is an environment limitation, not a plugin result.
   without changing their behavior.
 - Phase 3 — extensibility: completed in 2.4.0 with the product registry,
   dependency/capability declarations, validation and explicit module discovery.
+- Phase 4 — Map Design Studio: completed in 2.5.0 with cohesive style packs,
+  canonical styled DEMs, per-layout style snapshots, map-book batches,
+  cartographic QA, direct Web 3D data loading and safe parallel I/O.
 - Quality gates now cover registry contracts, dependency golden behavior, release
   packaging and QGIS 4.x runtime probes. Expanding hosted CI across every supported
   QGIS build remains ongoing release engineering rather than a product phase.

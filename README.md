@@ -151,13 +151,13 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 ## 🚀 Installation
 
 ### Option A: Install via QGIS Plugin Manager
-1. Download the latest `terrain_product_studio-2.7.0.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Download the latest `terrain_product_studio-2.7.1.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Open QGIS $\rightarrow$ **Plugins** $\rightarrow$ **Manage and Install Plugins...**
 3. Select **Install from ZIP** $\rightarrow$ choose the downloaded `.zip` file $\rightarrow$ Click **Install Plugin**.
 
 > Do **not** install GitHub's **Code → Download ZIP** archive. It contains the repository wrapper, not an installable QGIS plugin. Use the versioned ZIP under **Releases**; it contains `terrain_product_studio/metadata.txt` at the required location.
 
-> **v2.7.0**: Six lightweight previewed design presets bundle layout, QGIS layer style, numeric DEM palette and grid choice. The recommended default stays simple; advanced controls remain optional. Exported layouts now re-lock their safe zones after QGIS fits the map extent, preventing furniture overlap.
+> **v2.7.1**: Fixed the QGIS 3.40+/QGIS 4 deprecation warning from `bandStatistics()` (DEM inspection, styling and bundle build now use the typed raster-statistic overload via a central compatibility helper) and fixed a QGIS 4 / Qt 6 scoped-enum error on `QFrame.NoFrame` in the dock.
 
 ### Option B: Manual Installation
 Copy the `terrain_product_studio` directory into your QGIS active profile plugin folder:

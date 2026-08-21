@@ -25,6 +25,32 @@ def all_raster_statistics_flag():
         return getattr(QgsRasterBandStats, "All")
 
 
+def raster_band_statistics(provider, band, extent, sample_size=0):
+    """Return all band statistics without selecting QGIS' deprecated overload.
+
+    QGIS 3.40+ exposes both an old ``int`` overload and a new
+    ``Qgis.RasterBandStatistic`` overload. Some SIP builds still route an
+    explicitly supplied ``RasterBandStatistic.All`` value to the old overload
+    and emit a deprecation warning. Omitting ``stats`` selects the new overload
+    and uses its typed ``All`` default. The positional fallback retains support
+    for older QGIS 3 bindings.
+    """
+
+    try:
+        return provider.bandStatistics(
+            bandNo=int(band),
+            extent=extent,
+            sampleSize=int(sample_size),
+        )
+    except TypeError:
+        return provider.bandStatistics(
+            int(band),
+            all_raster_statistics_flag(),
+            extent,
+            int(sample_size),
+        )
+
+
 def map_grid_line_border_style():
     """Return the line-border grid-frame enum on QGIS 3 and QGIS 4.
 

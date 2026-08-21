@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.7.1 — 2026-08-21
+
+- Fixed the QGIS 3.40+ / QGIS 4 deprecation warning from `QgsRasterInterface.bandStatistics()`: band statistics now go through a centralized compatibility helper which uses the typed `Qgis.RasterBandStatistic` overload instead of the deprecated integer argument, across DEM inspection, layer styling and bundle building.
+- Fixed a QGIS 4 / Qt 6 scoped-enum error on `QFrame.NoFrame` in the dock's scroll areas; the Qt 5 unscoped fallback is preserved.
+
 ## 2.7.0 — 2026-08-20
 
 - Added a compact one-click design library with six curated combinations of layout template, QGIS layer styles, numeric DEM palette and coordinate-grid mode. Standard Topographic remains the simple recommended default and advanced overrides stay collapsed.

@@ -300,7 +300,10 @@ class TerrainStudioDock(QDockWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame if hasattr(QFrame, "Shape") else QFrame.NoFrame)
+        try:
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+        except AttributeError:  # Qt 5 unscoped enum
+            scroll.setFrameShape(getattr(QFrame, "NoFrame"))
         try:
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)

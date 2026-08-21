@@ -43,7 +43,7 @@ from ..core.presets import (
     resolve_palette_stops,
 )
 from ..core import plugin_version
-from ..core.qgis_compat import all_raster_statistics_flag
+from ..core.qgis_compat import raster_band_statistics
 from ..core.provenance import analytical_assumptions, build_run_provenance
 from ..core.smoothing import smooth_geometries
 from ..core.spot_elevations import extract_spot_elevations
@@ -800,9 +800,9 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                     )
                 )
 
-        stats = working_layer.dataProvider().bandStatistics(
+        stats = raster_band_statistics(
+            working_layer.dataProvider(),
             band,
-            all_raster_statistics_flag(),
             working_layer.extent(),
             250000,
         )

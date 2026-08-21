@@ -26,13 +26,13 @@ from .presets import (
     TERRAIN_PALETTES,
     resolve_palette_stops,
 )
-from .qgis_compat import all_raster_statistics_flag
+from .qgis_compat import raster_band_statistics
 
 
 def _stats(layer):
-    statistics = layer.dataProvider().bandStatistics(
+    statistics = raster_band_statistics(
+        layer.dataProvider(),
         1,
-        all_raster_statistics_flag(),
         layer.extent(),
         250000,
     )
