@@ -1767,7 +1767,7 @@ class TerrainStudioDock(QDockWidget):
             )
             if self.iface and self.iface.mapCanvas():
                 self.iface.mapCanvas().refresh()
-        except Exception:
+        except Exception:  # nosec B110 — best-effort restyle; keep the dock usable
             pass
 
     def _apply_industry_preset(self, index):

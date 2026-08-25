@@ -137,6 +137,6 @@ def apply_style_overrides_to_layout(project, layout, overrides):
             merged.update(overrides)
             item.setLayerStyleOverrides(merged)
             updated += 1
-        except Exception:
+        except Exception:  # nosec B112 — one unstyleable map item must not abort the layout pass
             continue
     return updated

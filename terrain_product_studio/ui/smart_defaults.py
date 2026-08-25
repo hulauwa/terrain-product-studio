@@ -20,7 +20,8 @@ class _InspectDemTask(QgsTask):
     """Runs :func:`inspect_dem_layer` off the GUI thread."""
 
     def __init__(self, layer, band):
-        super().__init__(f"Terrain Product Studio — inspect {layer.name()}", QgsTask.CanCancel)
+        # TaskFlag spelling works on both PyQt5 (QGIS 3) and PyQt6 (QGIS 4).
+        super().__init__(f"Terrain Product Studio — inspect {layer.name()}", QgsTask.TaskFlag.CanCancel)
         self._layer = layer
         self._band = int(band)
         self.info = None
