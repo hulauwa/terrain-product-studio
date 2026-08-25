@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.3 — 2026-08-25
+
+- Fixed the QGIS 4 / Qt 6 crash in the Assistant tab's DEM inspection task:
+  the `QgsTask` flags use the `TaskFlag.CanCancel` spelling that exists on
+  both PyQt5 (QGIS 3) and PyQt6 (QGIS 4).
+- Documented the two deliberate defensive exception handlers in the restyle
+  paths (`core/layout_styles.py`, `dock.py`) with `# nosec` comments so
+  static analysis no longer flags them.
+
 ## 3.0.2 — 2026-08-22
 
 The interactive 3D WebGIS viewer is restored to the proven 2.7.1 engine. The
