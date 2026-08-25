@@ -37,7 +37,7 @@ class PluginPackageTests(unittest.TestCase):
         metadata = parser["general"]
         self.assertEqual(metadata.get("hasprocessingprovider"), "yes")
         self.assertEqual(metadata.get("qgisminimumversion"), "3.34")
-        self.assertEqual(metadata.get("version"), "3.0.2")
+        self.assertEqual(metadata.get("version"), "3.0.3")
         self.assertEqual(metadata.get("experimental"), "False")
         self.assertEqual(metadata.get("license"), "GPLv2")
 
