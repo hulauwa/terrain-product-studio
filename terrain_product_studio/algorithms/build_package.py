@@ -21,6 +21,7 @@ from qgis.core import (
     QgsProcessingParameterBoolean,
     QgsProcessingParameterEnum,
     QgsProcessingParameterExtent,
+    QgsProcessingParameterFile,
     QgsProcessingParameterFolderDestination,
     QgsProcessingParameterNumber,
     QgsProcessingParameterRasterLayer,
@@ -111,6 +112,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
     CREATE_INTELLIGENCE_REPORT = "CREATE_INTELLIGENCE_REPORT"
     CREATE_HYDROLOGY = "CREATE_HYDROLOGY"
     STREAM_THRESHOLD_HA = "STREAM_THRESHOLD_HA"
+    RIVER_WIDTH_FACTOR = "RIVER_WIDTH_FACTOR"
+    RIVER_DEPTH_FACTOR = "RIVER_DEPTH_FACTOR"
     CREATE_BASINS = "CREATE_BASINS"
     CREATE_TWI = "CREATE_TWI"
     STREAM_SMOOTHING = "STREAM_SMOOTHING"
@@ -342,6 +345,26 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                 minValue=0.0001,
                 maxValue=1000000000.0,
                 defaultValue=25.0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.RIVER_WIDTH_FACTOR,
+                self.tr("River width factor (Horton W = 3·√A m)"),
+                type=_number_type_double(),
+                minValue=0.25,
+                maxValue=10.0,
+                defaultValue=1.0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.RIVER_DEPTH_FACTOR,
+                self.tr("River depth factor (power law D = 0.55·W^0.6 m)"),
+                type=_number_type_double(),
+                minValue=0.25,
+                maxValue=5.0,
+                defaultValue=1.0,
             )
         )
         self.addParameter(
@@ -646,6 +669,12 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
         stream_threshold_ha = self.parameterAsDouble(
             parameters, self.STREAM_THRESHOLD_HA, context
         )
+        river_width_factor = self.parameterAsDouble(
+            parameters, self.RIVER_WIDTH_FACTOR, context
+        )
+        river_depth_factor = self.parameterAsDouble(
+            parameters, self.RIVER_DEPTH_FACTOR, context
+        )
         create_basins = self.parameterAsBool(parameters, self.CREATE_BASINS, context)
         create_twi_requested = self.parameterAsBool(parameters, self.CREATE_TWI, context)
         stream_smoothing = self.parameterAsEnum(
@@ -843,6 +872,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
                     "PREFIX": prefix,
                     "Z_UNIT": z_unit_index,
                     "STREAM_THRESHOLD_HA": stream_threshold_ha,
+                    "RIVER_WIDTH_FACTOR": river_width_factor,
+                    "RIVER_DEPTH_FACTOR": river_depth_factor,
                     "CREATE_BASINS": create_basins,
                     "CREATE_TWI": pipeline_plan.create_twi,
                     "SMOOTHING": stream_smoothing,
@@ -1232,6 +1263,8 @@ class BuildTerrainPackageAlgorithm(QgsProcessingAlgorithm):
             "display_maximum_98pct": display_maximum,
             "contour_interval": contour_interval,
             "index_contour_interval": contour_interval * index_multiplier,
+            "river_width_factor": river_width_factor,
+            "river_depth_factor": river_depth_factor,
             "palette": palette_key,
             "compression": compression,
             "pipeline": {

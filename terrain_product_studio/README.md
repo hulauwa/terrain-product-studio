@@ -17,7 +17,9 @@
 - **Cartographic Smoothing**: Chaikin corner-cutting and Douglas–Peucker simplification for contours and rivers.
 - **Industry Presets**: One click ticks the right product set for Urban, Agriculture, Disaster or Mining workflows.
 - **GeoPackage Bundle**: All rasters and vectors merged into one shareable `.gpkg` (lossless PNG tiles for byte rasters, OGC 2D-gridded-coverage for float rasters).
-- **3D Web Viewer**: selectable 256/384/512 preview, correct map aspect/coordinates and direct user-selected GeoTIFF/COG/GeoJSON loading.
+- **3D Web Viewer (2.7.1 engine)**: quality-selectable (256/384/512) WebGL terrain viewer with flood simulation, cross-section, solar shadow, AI assistant, drone flythrough and live surface inspector — plus direct user-selected GeoTIFF/COG or GeoJSON loading.
+- **Restyle Without Regeneration**: live debounced restyle of the canvas (600 ms) and a one-click **Apply Style to Existing Outputs** that restyles the canvas, QML packs and print layouts of the last run from `report.json` — the analysis is never re-run.
+- **Smart Defaults (Assistant tab)**: contour interval, stream threshold, river width/depth factors and working CRS suggested from the DEM analysis, each with rationale and one-click Apply.
 - **STL / OBJ Export**: Watertight, 3D-printable mesh of the terrain — auto-downsampling, z exaggeration, optional base plate.
 - **Run History**: Journal of the last 20 runs in the QGIS profile; reopen folder and intelligence report from the Inspect tab.
 - **Map Design Studio**: independently select layout template, map style and elevation palette; per-layout style snapshots, reusable QML, collision-safe map furniture and a drag-reorder map-book queue.
@@ -32,9 +34,9 @@
 
 ## Installation
 
-1. Download `terrain_product_studio-2.7.0.zip` from the GitHub **Releases** page. Do not use GitHub's repository source ZIP.
+1. Download `terrain_product_studio-3.0.2.zip` from the GitHub **Releases** page. Do not use GitHub's repository source ZIP.
 2. In QGIS, navigate to **Plugins → Manage and Install Plugins… → Install from ZIP**.
-3. Select `terrain_product_studio-2.7.0.zip` and click **Install Plugin**.
+3. Select `terrain_product_studio-3.0.2.zip` and click **Install Plugin**.
 4. Access the plugin via **Raster → Terrain Product Studio** or the toolbar terrain icon.
 
 ## License

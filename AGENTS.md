@@ -121,3 +121,33 @@ failure for `qgis` or `osgeo` is an environment limitation, not a plugin result.
 - Quality gates now cover registry contracts, dependency golden behavior, release
   packaging and QGIS 4.x runtime probes. Expanding hosted CI across every supported
   QGIS build remains ongoing release engineering rather than a product phase.
+
+## Roadmap through 3.0.2
+
+- Phase 5 — Restyle, smart defaults & hydrology geometry (kept in 3.0.2):
+
+  - `core/math_utils.py` gained pure formulas: `suggest_stream_threshold`,
+    `river_width_m`/`river_depth_m` (Horton–Leopold) and
+    `suggest_vertical_exaggeration`; `core/dem_info.py` reports `relief_m` and
+    `extent_width_m`.
+  - Hydrology (`core/native_hydrology.py`, `algorithms/build_hydrology.py`,
+    `algorithms/build_package.py`) exports `WIDTH_M`/`DEPTH_M` into the
+    GeoPackage, driven by `RIVER_WIDTH_FACTOR` / `RIVER_DEPTH_FACTOR`.
+  - The 3D WebGIS viewer is the proven 2.7.1 engine: inline
+    `_HTML_TEMPLATE` inside `core/web_3d_viewer.py`, grid-cell world frame,
+    CDN three.js/geotiff at view time. The 3.0.0 viewer redesign (real-metre
+    frame, overlay textures, basemaps, vertical-exaggeration param) was
+    removed in 3.0.2; do not re-add external template assets or SCENE_*
+    parameters.
+  - Restyle (`core/restyle.py` + `layers.apply_result_styles` +
+    `layout_styles.apply_style_overrides_to_layout`): re-applies current
+    cartography to canvas/QML/layouts from `report.json` without re-running
+    the pipeline. The never-overwrite invariant has one sanctioned exception:
+    the plugin's own products (its QML packs, layout style overrides) are
+    overwritten in place.
+  - Smart defaults (`core/smart_defaults.py` + `ui/smart_defaults.py`): four
+    DEM-derived suggestions; async inspection is debounced in a `QgsTask` with a
+    generation counter so a stale result can never win over a manual Inspect.
+  - New invariants: a restyle must never create groups, never recompute
+    analysis, never touch `report.json`; the viewer must keep `viewer_version`
+    semantics readable by older plugins.

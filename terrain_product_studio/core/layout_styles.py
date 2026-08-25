@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from qgis.core import QgsMapLayerStyle
+from qgis.core import QgsLayoutItemMap, QgsMapLayerStyle
 
 from .math_utils import sanitize_prefix, unique_path
 from .presets import CARTOGRAPHY_PRESETS
@@ -85,8 +85,12 @@ def create_layer_style_overrides(layers, ordered_keys, config):
     return overrides, tuple(warnings)
 
 
-def export_style_pack_qml(layers, ordered_keys, config, output_folder):
-    """Write reusable QML files for the same styles captured by a layout."""
+def export_style_pack_qml(layers, ordered_keys, config, output_folder, overwrite=False):
+    """Write reusable QML files for the same styles captured by a layout.
+
+    ``overwrite=True`` (used by restyle) writes to the deterministic path the
+    plugin itself created, so a restyle never accumulates numbered siblings.
+    """
 
     overrides, warnings = create_layer_style_overrides(
         layers, ordered_keys, config
@@ -102,10 +106,37 @@ def export_style_pack_qml(layers, ordered_keys, config, output_folder):
         key = id_to_key.get(layer_id)
         if not key:
             continue
-        path = unique_path(
-            os.path.join(style_folder, f"{sanitize_prefix(key.lower())}.qml")
-        )
+        target = os.path.join(style_folder, f"{sanitize_prefix(key.lower())}.qml")
+        path = target if overwrite else unique_path(target)
         with open(path, "w", encoding="utf-8") as stream:
             stream.write(xml)
         exported[key] = path
     return exported, warnings
+
+
+def apply_style_overrides_to_layout(project, layout, overrides):
+    """Apply ``overrides`` (layer-id -> style XML) to every map item in a layout.
+
+    Existing overrides for layers the plugin does not manage are preserved, so
+    a user's own map items are never stripped of their styles.  Returns the
+    number of map items updated.
+    """
+
+    updated = 0
+    if overrides is None:
+        return updated
+    for item in layout.items():
+        if not isinstance(item, QgsLayoutItemMap):
+            continue
+        try:
+            existing = {}
+            current = item.layerStyleOverrides()
+            if current:
+                existing = dict(current)
+            merged = dict(existing)
+            merged.update(overrides)
+            item.setLayerStyleOverrides(merged)
+            updated += 1
+        except Exception:
+            continue
+    return updated

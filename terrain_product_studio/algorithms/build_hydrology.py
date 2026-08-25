@@ -45,6 +45,8 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
     PREFIX = "PREFIX"
     Z_UNIT = "Z_UNIT"
     STREAM_THRESHOLD_HA = "STREAM_THRESHOLD_HA"
+    RIVER_WIDTH_FACTOR = "RIVER_WIDTH_FACTOR"
+    RIVER_DEPTH_FACTOR = "RIVER_DEPTH_FACTOR"
     CREATE_BASINS = "CREATE_BASINS"
     CREATE_TWI = "CREATE_TWI"
     SMOOTHING = "SMOOTHING"
@@ -119,6 +121,26 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
                 minValue=0.0001,
                 maxValue=1000000000.0,
                 defaultValue=25.0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.RIVER_WIDTH_FACTOR,
+                self.tr("River width factor (Horton W = 3·√A m)"),
+                type=_number_type_double(),
+                minValue=0.25,
+                maxValue=10.0,
+                defaultValue=1.0,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.RIVER_DEPTH_FACTOR,
+                self.tr("River depth factor (power law D = 0.55·W^0.6 m)"),
+                type=_number_type_double(),
+                minValue=0.25,
+                maxValue=5.0,
+                defaultValue=1.0,
             )
         )
         self.addParameter(
@@ -201,6 +223,8 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
         prefix = sanitize_prefix(self.parameterAsString(parameters, self.PREFIX, context))
         z_unit = self.parameterAsEnum(parameters, self.Z_UNIT, context)
         threshold_ha = self.parameterAsDouble(parameters, self.STREAM_THRESHOLD_HA, context)
+        width_factor = self.parameterAsDouble(parameters, self.RIVER_WIDTH_FACTOR, context)
+        depth_factor = self.parameterAsDouble(parameters, self.RIVER_DEPTH_FACTOR, context)
         create_basins = self.parameterAsBool(parameters, self.CREATE_BASINS, context)
         create_twi = self.parameterAsBool(parameters, self.CREATE_TWI, context)
         if source is None or not source.isValid():
@@ -263,6 +287,8 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
                 vertical_meters_per_unit=vertical_m,
                 twi_path=paths.get(self.TWI),
                 basin_path=paths.get(self.BASINS),
+                width_factor=width_factor,
+                depth_factor=depth_factor,
             )
         except RuntimeError as error:
             raise QgsProcessingException(str(error)) from error
@@ -318,6 +344,8 @@ class BuildHydrologyAlgorithm(QgsProcessingAlgorithm):
             "minimum_contributing_area_ha": threshold_ha,
             "threshold_cells": threshold_cells,
             "pixel_area_m2": pixel_area_m2,
+            "river_width_factor": width_factor,
+            "river_depth_factor": depth_factor,
             "summary": hydrology_summary,
             "smoothing_summary": smoothing_summary,
             "note": (

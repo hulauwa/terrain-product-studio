@@ -319,5 +319,113 @@
         <source>QGIS project save error</source>
         <translation>Lỗi lưu project QGIS</translation>
     </message>
+    <message>
+        <source>3D Scene</source>
+        <translation>Cảnh 3D</translation>
+    </message>
+    <message>
+        <source>Assistant</source>
+        <translation>Trợ lý</translation>
+    </message>
+    <message>
+        <source>🎨 Apply Style to Existing Outputs</source>
+        <translation>🎨 Áp style vào kết quả đã chạy</translation>
+    </message>
+    <message>
+        <source>Restyle the last run's canvas layers, QML style packs, layouts and 3D viewer with the current cartography — no pipeline re-run.</source>
+        <translation>Áp cartography hiện tại vào lớp canvas, bộ QML, layout và viewer 3D của lần chạy trước — không chạy lại pipeline.</translation>
+    </message>
+    <message>
+        <source>River width factor</source>
+        <translation>Hệ số bề rộng sông</translation>
+    </message>
+    <message>
+        <source>River depth factor</source>
+        <translation>Hệ số độ sâu sông</translation>
+    </message>
+    <message>
+        <source>Select a DEM layer — suggestions appear automatically.</source>
+        <translation>Chọn lớp DEM — các gợi ý sẽ hiện ra tự động.</translation>
+    </message>
+    <message>
+        <source>Apply all suggestions</source>
+        <translation>Áp dụng toàn bộ gợi ý</translation>
+    </message>
+    <message>
+        <source>Project layers to drape over the 3D terrain (DEM excluded).</source>
+        <translation>Lớp project để trải lên địa hình 3D (không gồm DEM).</translation>
+    </message>
+    <message>
+        <source>Checked project layers are rendered as transparent textures and draped over the 3D terrain — styled exactly as in QGIS, labels included. 'Refresh 3D Scene' re-renders only the viewer from the last run, without re-running the pipeline.</source>
+        <translation>Các lớp project được tick sẽ được render thành texture trong suốt và trải lên địa hình 3D — style giống hệt QGIS, kèm nhãn. 'Refresh 3D Scene' chỉ dựng lại viewer từ lần chạy trước, không chạy lại pipeline.</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation>Không</translation>
+    </message>
+    <message>
+        <source>Embed textures into the HTML (larger file)</source>
+        <translation>Nhúng texture vào HTML (file lớn hơn)</translation>
+    </message>
+    <message>
+        <source>Texture resolution</source>
+        <translation>Độ phân giải texture</translation>
+    </message>
+    <message>
+        <source>Height above terrain</source>
+        <translation>Độ cao trên địa hình</translation>
+    </message>
+    <message>
+        <source>Basemap</source>
+        <translation>Nền bản đồ</translation>
+    </message>
+    <message>
+        <source>Refresh 3D Scene</source>
+        <translation>Làm mới cảnh 3D</translation>
+    </message>
+    <message>
+        <source>Re-renders overlay textures and regenerates only the viewer HTML from the last run — the pipeline is not re-run and report.json is unchanged. Overwrites the plugin's own viewer file.</source>
+        <translation>Render lại texture overlay và chỉ tái tạo file HTML viewer từ lần chạy trước — pipeline không chạy lại và report.json không đổi. Ghi đè file viewer do chính plugin tạo.</translation>
+    </message>
+    <message>
+        <source>Auto</source>
+        <translation>Tự động</translation>
+    </message>
+    <message>
+        <source>3D viewer vertical exaggeration (0 = auto)</source>
+        <translation>Phóng đại trục đứng viewer 3D (0 = tự động)</translation>
+    </message>
+    <message>
+        <source>3D viewer vertical exaggeration. 0 = suggested automatically from terrain relief and map width (see Assistant tab).</source>
+        <translation>Phóng đại trục đứng viewer 3D. 0 = tự gợi ý theo biên độ địa hình và chiều rộng bản đồ (xem tab Trợ lý).</translation>
+    </message>
+    <message>
+        <source>3D viewer not generated</source>
+        <translation>Chưa tạo viewer 3D</translation>
+    </message>
+    <message>
+        <source>3D Scene refreshed</source>
+        <translation>Đã làm mới cảnh 3D</translation>
+    </message>
+    <message>
+        <source>Refresh failed</source>
+        <translation>Làm mới thất bại</translation>
+    </message>
+    <message>
+        <source>Restyle failed</source>
+        <translation>Áp style thất bại</translation>
+    </message>
+    <message>
+        <source>Restyled</source>
+        <translation>Đã áp style</translation>
+    </message>
+    <message>
+        <source>canvas layer(s)</source>
+        <translation>lớp canvas</translation>
+    </message>
+    <message>
+        <source>3D viewer regenerated</source>
+        <translation>viewer 3D đã được tái tạo</translation>
+    </message>
 </context>
 </TS>

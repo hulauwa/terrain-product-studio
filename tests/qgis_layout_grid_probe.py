@@ -96,8 +96,12 @@ if maps:
         except AttributeError:
             from qgis.core import QgsLayoutItemMapGrid
 
-            position = int(grid.annotationPosition())
-            direction = int(grid.annotationDirection())
+            try:
+                position = int(grid.annotationPosition())
+                direction = int(grid.annotationDirection())
+            except TypeError:  # QGIS < 3.26 getters require the border side
+                position = int(grid.annotationPosition(0))
+                direction = int(grid.annotationDirection(0))
             try:
                 outside = int(
                     QgsLayoutItemMapGrid.AnnotationPosition.OutsideMapFrame

@@ -31,7 +31,12 @@ from qgis.core import (
 from .math_utils import nice_interval, sanitize_prefix, unique_path
 from .map_recipes import resolve_recipe_keys
 from .presets import CARTOGRAPHY_PRESETS
-from .qgis_compat import legend_component, map_grid_line_border_style
+from .qgis_compat import (
+    layout_unit_mm,
+    legend_component,
+    map_grid_line_border_style,
+    set_label_text_format,
+)
 from .layout_styles import create_layer_style_overrides
 from .layout_geometry import plan_layout_geometry, validate_layout_geometry
 from .style_packs import LAYOUT_TEMPLATES, style_pack
@@ -80,12 +85,12 @@ def _add_label(
     text_format.setFont(selected_font)
     text_format.setSize(float(size))
     text_format.setColor(QColor(color))
-    label.setTextFormat(text_format)
+    set_label_text_format(label, text_format)
     label.setHAlign(_qt_alignment(alignment))
     label.setVAlign(_qt_alignment("AlignVCenter"))
     layout.addLayoutItem(label)
-    label.attemptMove(QgsLayoutPoint(x, y, Qgis.LayoutUnit.Millimeters))
-    label.attemptResize(QgsLayoutSize(width, height, Qgis.LayoutUnit.Millimeters))
+    label.attemptMove(QgsLayoutPoint(x, y, layout_unit_mm()))
+    label.attemptResize(QgsLayoutSize(width, height, layout_unit_mm()))
     return label
 
 
@@ -275,7 +280,7 @@ def create_terrain_layout(
     page_is_landscape = page_width > page_height
     page = layout.pageCollection().page(0)
     page.setPageSize(
-        QgsLayoutSize(page_width, page_height, Qgis.LayoutUnit.Millimeters)
+        QgsLayoutSize(page_width, page_height, layout_unit_mm())
     )
     page.setPageStyleSymbol(
         QgsFillSymbol.createSimple(
@@ -344,10 +349,10 @@ def create_terrain_layout(
     map_item = QgsLayoutItemMap(layout)
     layout.addLayoutItem(map_item)
     map_item.attemptMove(
-        QgsLayoutPoint(map_box[0], map_box[1], Qgis.LayoutUnit.Millimeters)
+        QgsLayoutPoint(map_box[0], map_box[1], layout_unit_mm())
     )
     map_item.attemptResize(
-        QgsLayoutSize(map_box[2], map_box[3], Qgis.LayoutUnit.Millimeters)
+        QgsLayoutSize(map_box[2], map_box[3], layout_unit_mm())
     )
     map_item.setFrameEnabled(True)
     map_item.setFrameStrokeColor(QColor(preset["ink"]))
@@ -362,7 +367,7 @@ def create_terrain_layout(
     }.get(template.frame_style, 0.55)
     map_item.setFrameEnabled(frame_width > 0)
     map_item.setFrameStrokeWidth(
-        QgsLayoutMeasurement(frame_width, Qgis.LayoutUnit.Millimeters)
+        QgsLayoutMeasurement(frame_width, layout_unit_mm())
     )
     map_item.setBackgroundColor(QColor(preset["paper"]))
     map_item.setCrs(reference.crs())
@@ -376,10 +381,10 @@ def create_terrain_layout(
     # reserved safe zone afterwards so the map can never grow into legend or
     # marginalia space.
     map_item.attemptMove(
-        QgsLayoutPoint(map_box[0], map_box[1], Qgis.LayoutUnit.Millimeters)
+        QgsLayoutPoint(map_box[0], map_box[1], layout_unit_mm())
     )
     map_item.attemptResize(
-        QgsLayoutSize(map_box[2], map_box[3], Qgis.LayoutUnit.Millimeters)
+        QgsLayoutSize(map_box[2], map_box[3], layout_unit_mm())
     )
 
     ordered_keys = _map_layer_keys(layers, preset_key)
@@ -524,10 +529,10 @@ def create_terrain_layout(
             )
         layout.addLayoutItem(legend)
         legend.attemptMove(
-            QgsLayoutPoint(legend_rect[0], legend_rect[1], Qgis.LayoutUnit.Millimeters)
+            QgsLayoutPoint(legend_rect[0], legend_rect[1], layout_unit_mm())
         )
         legend.attemptResize(
-            QgsLayoutSize(legend_rect[2], legend_rect[3], Qgis.LayoutUnit.Millimeters)
+            QgsLayoutSize(legend_rect[2], legend_rect[3], layout_unit_mm())
         )
 
     north = QgsLayoutItemPicture(layout)
@@ -535,10 +540,10 @@ def create_terrain_layout(
     north.setLinkedMap(map_item)
     layout.addLayoutItem(north)
     north.attemptMove(
-        QgsLayoutPoint(north_box[0], north_box[1], Qgis.LayoutUnit.Millimeters)
+        QgsLayoutPoint(north_box[0], north_box[1], layout_unit_mm())
     )
     north.attemptResize(
-        QgsLayoutSize(north_box[2], north_box[3], Qgis.LayoutUnit.Millimeters)
+        QgsLayoutSize(north_box[2], north_box[3], layout_unit_mm())
     )
 
     scale = QgsLayoutItemScaleBar(layout)
@@ -551,13 +556,13 @@ def create_terrain_layout(
     scale_text.setFont(QFont(font_family))
     scale_text.setSize(6.5)
     scale_text.setColor(QColor(preset["ink"]))
-    scale.setTextFormat(scale_text)
+    set_label_text_format(scale, scale_text)
     layout.addLayoutItem(scale)
     scale.attemptMove(
-        QgsLayoutPoint(scale_box[0], scale_box[1], Qgis.LayoutUnit.Millimeters)
+        QgsLayoutPoint(scale_box[0], scale_box[1], layout_unit_mm())
     )
     scale.attemptResize(
-        QgsLayoutSize(scale_box[2], scale_box[3], Qgis.LayoutUnit.Millimeters)
+        QgsLayoutSize(scale_box[2], scale_box[3], layout_unit_mm())
     )
 
     crs_text = reference.crs().authid() or reference.crs().description()

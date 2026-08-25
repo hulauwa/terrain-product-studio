@@ -32,12 +32,14 @@
 
 - **Zero Data Distortion**: Raw analytical derivatives maintain real floating-point physical units (degrees, radians, meters, index scores) while cartographic layers receive styling.
 - **Smart Setup Assistant**: Contour interval suggested from AOI scale and relief (snapped to the standard `1/2/2.5/5/10/20/25/50/100` table) with one-click Apply; **20-map palette library** with gradient thumbnails grouped Classic / Artistic / Environment / Scientific / **Dark Terrain** (six true dark ramps with elevation-anchored stops that auto-switch to the Night Dark cartography theme); live swatch preview.
-- **Continuous Strahler Polyline Network**: Advanced D8 topological tracing extracts smooth, continuous vector streams with rich hydraulic attributes (`ORDER`, `LENGTH_M`, `AREA_HA`) — now with optional Chaikin / Douglas–Peucker cartographic smoothing.
+- **Continuous Strahler Polyline Network**: Advanced D8 topological tracing extracts smooth, continuous vector streams with rich hydraulic attributes (`ORDER`, `LENGTH_M`, `AREA_HA`) plus **real hydraulic geometry** (`WIDTH_M` = $3\sqrt{A}$, `DEPTH_M` = $0.55\,W^{0.6}$) exported into the GeoPackage — with optional Chaikin / Douglas–Peucker cartographic smoothing.
 - **Dependency-Safe One-Click Pipeline**: The DEM is preprocessed once, hydrology runs before SPI/STI/landslide/multi-hazard products, and slope/TWI dependencies are auto-enabled explicitly. No cached accumulation or slope drainage proxy is used.
 - **Multi-Hazard Composite & Shareable Bundle**: Weighted landslide × slope × TWI composite index, exported together with every raster and vector layer into **one GeoPackage** (lossless PNG tiles for byte rasters, OGC 2D-gridded-coverage for float rasters).
 - **3D Printing & Workflow**: STL/OBJ mesh export (auto-downsampling, z exaggeration, watertight base plate), one-click industry presets (Urban / Agriculture / Disaster / Mining), a run-history journal (last 20 jobs reopenable from the Inspect tab), and one-click **QGIS project (.qgz)** export that saves every layer, style, group and print layout into the output folder.
 - **Map Design Studio**: choose layout template, map style and elevation palette independently; reusable QML and any number of independently styled layouts in a drag-reorder map-book queue. Reserved safe zones prevent map furniture overlap.
 - **Real-Time 3D WebGIS Studio (`.html`)**: quality-selectable WebGL terrain viewer with correct map aspect/coordinates, concurrent raster preparation and direct user-selected GeoTIFF/COG or GeoJSON loading.
+- **Restyle Without Regeneration**: change palette, cartography theme, design or font and the canvas restyles live (600 ms debounce) — or use **🎨 Apply Style to Existing Outputs** to push the current style to the canvas, QML packs and layouts of the last run. The analysis is never re-run and `report.json` is never touched.
+- **Smart Defaults (Assistant tab)**: four suggestions derived from the DEM inspection — contour interval, stream threshold, river width/depth factors and the working CRS — each with an honest rationale and one-click Apply.
 - **Topographic Intelligence Report (`.html`)**: Executive summary dashboard featuring SVG Aspect Rose radar charts, hypsometric histograms, and TCVN geotechnical matrices.
 - **Dual QGIS 3 (Qt5) & QGIS 4 (Qt6) Compatibility**: Fully verified against scoped enum architectures and modern Python 3.12+ environments.
 
@@ -151,13 +153,13 @@ Generated as an executive HTML dashboard (`<prefix>_topographic_intelligence_rep
 ## 🚀 Installation
 
 ### Option A: Install via QGIS Plugin Manager
-1. Download the latest `terrain_product_studio-2.7.1.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Download the latest `terrain_product_studio-3.0.2.zip` from [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Open QGIS $\rightarrow$ **Plugins** $\rightarrow$ **Manage and Install Plugins...**
 3. Select **Install from ZIP** $\rightarrow$ choose the downloaded `.zip` file $\rightarrow$ Click **Install Plugin**.
 
 > Do **not** install GitHub's **Code → Download ZIP** archive. It contains the repository wrapper, not an installable QGIS plugin. Use the versioned ZIP under **Releases**; it contains `terrain_product_studio/metadata.txt` at the required location.
 
-> **v2.7.1**: Fixed the QGIS 3.40+/QGIS 4 deprecation warning from `bandStatistics()` (DEM inspection, styling and bundle build now use the typed raster-statistic overload via a central compatibility helper) and fixed a QGIS 4 / Qt 6 scoped-enum error on `QFrame.NoFrame` in the dock.
+> **v3.0.2**: The 3D WebGIS viewer is restored to the proven 2.7.1 engine (inline template, grid-cell world frame, same toolset) while everything else from 3.0.0 stays: restyle without regeneration (live debounced canvas restyle + **Apply Style to Existing Outputs**), the Smart Defaults Assistant (contour interval, stream threshold, river factors, CRS) and real `WIDTH_M`/`DEPTH_M` hydraulic geometry in the GeoPackage.
 
 ### Option B: Manual Installation
 Copy the `terrain_product_studio` directory into your QGIS active profile plugin folder:
@@ -170,18 +172,20 @@ Copy the `terrain_product_studio` directory into your QGIS active profile plugin
 ## 📖 User Guide
 
 1. Open the plugin dock from **Raster** $\rightarrow$ **Terrain Product Studio** $\rightarrow$ **Terrain Product Studio Panel** (or click the toolbar icon).
-2. **1 · Input Data**: Select your DEM raster layer and elevation band. Click **Inspect DEM** for scale and contour recommendations.
+2. **1 · Input Data**: Select your DEM raster layer and elevation band. The DEM is inspected automatically (debounced) — the **Assistant** tab fills itself with smart defaults.
 3. **2 · Processing Extent**: Choose between *Full DEM*, *Current Map Canvas*, or a specific *Boundary Layer*.
 4. **3 · Output**: Specify your destination folder (defaults to plugin's `temp/` folder) and custom file prefix.
 5. **Tabs**:
+   - **Assistant**: four DEM-derived suggestions — contour interval, stream threshold, river width/depth factors and the working CRS — each with its rationale and an **Apply all** button.
    - **Products**: Pick an **industry preset** (Urban / Agriculture / Disaster / Mining) or check products manually; configure smoothing and the composite-index weights; tick **Create QGIS project (.qgz)** to save the styled project next to the outputs.
    - **Contours**: Adjust contour interval and index multiplier, and the **peak point threshold (% of relief)** — only summits in the top N% of the elevation range become spot markers (0 = Off).
-   - **Hydrology**: Enable drainage extraction and set stream initiation threshold ($ha$).
+   - **Hydrology**: Enable drainage extraction, set the stream initiation threshold ($ha$), and tune the **river width / depth factors** (1.0 = real Horton–Leopold hydraulic geometry) that feed the `WIDTH_M`/`DEPTH_M` fields.
    - **Layout**: Choose a layout template and map style independently, check readiness, add designs to the map-book queue and generate PDF/PNG layouts. Elevation colors remain independently selectable under **Settings**.
-   - **Settings**: Choose Web 3D quality and configure Z-exaggeration/base thickness for the **STL/OBJ 3D-print export**.
+   - **Settings**: Web 3D quality (256/384/512) and Z-exaggeration/base thickness for the **STL/OBJ 3D-print export** (STL keeps absolute scale; the Z factor is a printing choice).
    - **Inspect**: Reopen the output folder / intelligence report of any of the last 20 runs.
 6. Click **Build Product Package**.
 7. Once finished, click **🌐 View 3D Web Map** or **📊 View Report** to launch the interactive deliverables in your default browser.
+8. **Restyle without re-running**: switch palette / cartography / design / font and the canvas restyles live (debounced). For the previous run's outputs — canvas, QML style packs and print layouts — click **🎨 Apply Style to Existing Outputs**; the analysis is never re-run.
 
 ---
 
@@ -193,6 +197,8 @@ terrain_product_studio/
 │   ├── build_package.py       # Main Processing algorithm: full product package
 │   ├── build_hydrology.py     # Hydrology & drainage Processing algorithm
 │   └── inspect_dem.py         # DEM inspection algorithm
+├── assets/
+│   └── preset_previews/       # Industry-preset preview thumbnails
 ├── core/
 │   ├── bundle.py              # Single-GeoPackage merge (rasters + vectors)
 │   ├── dem_info.py            # Inspection heuristics & scale recommendations
@@ -200,9 +206,11 @@ terrain_product_studio/
 │   ├── geomorphon.py          # Jasiewicz & Stepinski terrain forms
 │   ├── history.py             # Run-history journal (last 20 jobs)
 │   ├── intelligence_report.py # Topographic Intelligence HTML generator
-│   ├── layers.py              # Project layer stacking & grouping
+│   ├── layers.py              # Project layer stacking & grouping / shared style routine
 │   ├── layouts.py             # Print layout composer (paper size, themes)
 │   ├── layout_styles.py       # Per-layout style snapshots and QML export
+│   ├── restyle.py             # Restyle existing outputs from report.json (no regeneration)
+│   ├── smart_defaults.py      # DEM-derived suggestions (contour, threshold, rivers, CRS)
 │   ├── style_packs.py         # Cohesive style-pack and layout-template model
 │   ├── cartography_qa.py      # Map readiness and recipe explanations
 │   ├── share_package.py       # Transparent share-package manifest
@@ -218,8 +226,10 @@ terrain_product_studio/
 │   ├── spot_elevations.py     # Peak detection & prominence filtering
 │   ├── styles.py              # Automated styling & symbology rules
 │   ├── thematic_terrain.py    # TCVN Suitability, landslide, multi-hazard, SPI/STI
-│   └── web_3d_viewer.py       # WebGL 3D Interactive WebGIS Studio generator
-├── ui/task_controller.py      # Async Processing task lifecycle
+│   └── web_3d_viewer.py       # WebGL 3D Interactive WebGIS Studio generator (v2)
+├── ui/
+│   ├── smart_defaults.py      # Debounced async DEM inspector (QgsTask)
+│   └── task_controller.py     # Async Processing task lifecycle
 ├── dock.py                    # Dock widget composition and result presentation
 └── plugin.py                  # Plugin entry point & menu registration
 ```

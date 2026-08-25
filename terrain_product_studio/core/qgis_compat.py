@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from qgis.PyQt.QtGui import QFontDatabase
-from qgis.core import Qgis, QgsLayoutItemMapGrid, QgsRasterBandStats
+from qgis.core import Qgis, QgsLayoutItemMapGrid, QgsMapSettings, QgsRasterBandStats
 
 try:
     from qgis.core import QgsLegendStyle
@@ -82,6 +82,63 @@ def legend_component(name):
         if QgsLegendStyle is None:
             raise
         return getattr(QgsLegendStyle, name)
+
+
+def map_settings_render_flags(*, labeling=True):
+    """Return QgsMapSettings render flags for offscreen texture rendering.
+
+    QGIS 3 exposes ``QgsMapSettings.Flag`` while QGIS 4 moved the enum to
+    ``Qgis.MapSettingsFlag``. The default flags already include antialiasing,
+    so only the label-drawing flag is toggled here. ``0`` (the no-label
+    fallback) is only used by callers that never pass ``labeling=False`` on
+    QGIS 4, where ``setFlags`` expects the typed enum.
+    """
+
+    if labeling:
+        try:
+            return Qgis.MapSettingsFlag.DrawLabeling
+        except AttributeError:
+            pass
+        try:
+            return QgsMapSettings.Flag.DrawLabeling
+        except AttributeError:
+            return getattr(QgsMapSettings, "DrawLabeling")
+    return 0
+
+
+def layout_unit_mm():
+    """Return the millimetre layout-unit enum on QGIS 3 and QGIS 4.
+
+    ``Qgis.LayoutUnit`` exists on QGIS 3.34+ and QGIS 4, while older QGIS 3
+    bindings expose ``QgsUnitTypes.LayoutUnit`` (or legacy unscoped ints).
+    Importing ``QgsUnitTypes`` lazily keeps QGIS 4 (which removes the legacy
+    enum container) safe.
+    """
+
+    try:
+        return Qgis.LayoutUnit.Millimeters
+    except AttributeError:
+        pass
+    try:
+        from qgis.core import QgsUnitTypes
+
+        return QgsUnitTypes.LayoutUnit.Millimeters
+    except (AttributeError, ImportError):
+        return 0  # legacy QGIS 3 enum: Millimeters == 0
+
+
+def set_label_text_format(label, text_format):
+    """Apply a ``QgsTextFormat`` to a ``QgsLayoutItemLabel`` on QGIS 3/4.
+
+    ``setTextFormat`` exists on QGIS 3.24+ and QGIS 4; older QGIS 3
+    bindings only expose the legacy font/color setters.
+    """
+
+    try:
+        label.setTextFormat(text_format)
+    except AttributeError:
+        label.setFont(text_format.font())
+        label.setFontColor(text_format.color())
 
 
 def font_families():

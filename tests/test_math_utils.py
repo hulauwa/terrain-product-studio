@@ -9,9 +9,13 @@ from terrain_product_studio.core.math_utils import (
     index_interval,
     interpolate_color_stops,
     nice_interval,
+    river_depth_m,
+    river_width_m,
     sanitize_prefix,
     snap_interval,
     suggest_contour_interval,
+    suggest_stream_threshold,
+    suggest_vertical_exaggeration,
     unique_path,
     utm_epsg_for_lon_lat,
 )
@@ -81,6 +85,59 @@ class MathUtilsTests(unittest.TestCase):
         self.assertIn(large, STANDARD_INTERVALS)
         # Flat terrain still produces a sensible minimum.
         self.assertGreaterEqual(suggest_contour_interval(1.0, 10000.0), 1.0)
+
+    def test_suggest_stream_threshold_scales_with_pixel_size(self):
+        # Fine pixels are clamped to the minimum so LiDAR rill noise is
+        # suppressed; coarse pixels grow the area threshold so only real
+        # channels appear.
+        self.assertEqual(suggest_stream_threshold(1.0)[0], 0.5)
+        self.assertEqual(suggest_stream_threshold(10.0)[0], 0.5)
+        self.assertAlmostEqual(suggest_stream_threshold(30.0)[0], 4.41, places=2)
+        self.assertAlmostEqual(suggest_stream_threshold(100.0)[0], 90.0, places=1)
+        # Monotonic non-decreasing in pixel size.
+        previous = 0.0
+        for pixel in (1, 5, 10, 30, 60, 100, 250):
+            value = suggest_stream_threshold(float(pixel))[0]
+            self.assertGreaterEqual(value, previous - 1e-9)
+            previous = value
+        # Clamps honored.
+        self.assertEqual(suggest_stream_threshold(10000.0)[0], 250.0)
+        self.assertEqual(suggest_stream_threshold(0.0)[0], 0.5)
+        # Rationale carries the worked numbers.
+        value, rationale = suggest_stream_threshold(30.0)
+        self.assertIn(f"{value:g}", rationale)
+        self.assertIn("resolution", rationale)
+
+    def test_river_width_follows_horton_scaling(self):
+        self.assertAlmostEqual(river_width_m(25.0), 1.5, places=1)
+        self.assertAlmostEqual(river_width_m(500.0), 6.7, places=1)
+        self.assertAlmostEqual(river_width_m(10000.0), 30.0, places=1)
+        self.assertAlmostEqual(river_width_m(100000.0), 94.9, places=1)
+        # Factor scales linearly.
+        self.assertAlmostEqual(river_width_m(500.0, factor=2.0), 13.4, places=1)
+        # Degenerate input and clamps.
+        self.assertEqual(river_width_m(0.0), 0.8)
+        self.assertEqual(river_width_m(-5.0), 0.8)
+        self.assertEqual(river_width_m(1e12), 400.0)
+
+    def test_river_depth_power_law(self):
+        self.assertAlmostEqual(river_depth_m(1.5), 0.70, places=2)
+        self.assertAlmostEqual(river_depth_m(30.0), 4.2, places=1)
+        self.assertAlmostEqual(river_depth_m(94.87), 8.4, delta=0.1)
+        self.assertEqual(river_depth_m(0.0), 0.3)
+        self.assertEqual(river_depth_m(1e9), 40.0)
+
+    def test_suggest_vertical_exaggeration_balances_relief(self):
+        self.assertAlmostEqual(suggest_vertical_exaggeration(100.0, 2000.0), 2.4)
+        self.assertAlmostEqual(suggest_vertical_exaggeration(1400.0, 50000.0), 4.3, places=1)
+        self.assertAlmostEqual(suggest_vertical_exaggeration(2000.0, 20000.0), 1.2)
+        # Clamps.
+        self.assertEqual(suggest_vertical_exaggeration(500.0, 100000.0), 10.0)
+        self.assertEqual(suggest_vertical_exaggeration(10000.0, 2000.0), 0.5)
+        # Degenerate input falls back to a neutral 1.0.
+        self.assertEqual(suggest_vertical_exaggeration(0.0, 2000.0), 1.0)
+        self.assertEqual(suggest_vertical_exaggeration(100.0, 0.0), 1.0)
+        self.assertEqual(suggest_vertical_exaggeration(-3.0, 2000.0), 1.0)
 
     def test_unique_path_does_not_overwrite(self):
         with tempfile.TemporaryDirectory() as folder:

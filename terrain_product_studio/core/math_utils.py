@@ -85,6 +85,99 @@ def suggest_contour_interval(
     return snap_interval(nice_interval(relief, target))
 
 
+def suggest_stream_threshold(
+    pixel_size_m: float,
+    target_stream_density: float = 0.035,
+    min_ha: float = 0.5,
+    max_ha: float = 250.0,
+) -> Tuple[float, str]:
+    """Suggest a minimum contributing area (ha) for stream extraction.
+
+    The stream-cell fraction decays as the threshold grows (drainage power
+    law), so the suggestion keeps stream cells near a target fraction of the
+    DEM, scaled by pixel size: fine pixels need a larger cell threshold so
+    LiDAR-scale rill noise is suppressed; coarse pixels need a larger area
+    threshold so only real channels appear. Returns ``(ha, rationale)``.
+    """
+
+    pixel = max(float(pixel_size_m), 0.0)
+    if pixel <= 0 or not math.isfinite(pixel):
+        return float(min_ha), "Pixel size unavailable; using the minimum threshold."
+    density_frac = min(
+        0.08,
+        max(0.01, target_stream_density * math.sqrt(10.0 / max(pixel, 1.0))),
+    )
+    threshold_cells = max(1, int(round(1.0 / density_frac)))
+    ha = threshold_cells * pixel * pixel / 10000.0
+    ha = min(max(ha, min_ha), max_ha)
+    rationale = (
+        f"{pixel:g} m resolution: {ha:g} ha minimum (≈{threshold_cells:,} "
+        f"contributing cells) to keep streams legible without rill noise."
+    )
+    return float(ha), rationale
+
+
+def river_width_m(
+    area_ha: float,
+    factor: float = 1.0,
+    clamp_min: float = 0.8,
+    clamp_max: float = 400.0,
+) -> float:
+    """Bankfull river width from contributing area (Leopold/Horton scaling).
+
+    ``W = 3.0 * sqrt(A_km2)`` metres — the classic downstream hydraulic
+    geometry relation, scaled by ``factor`` and clamped so tiny headwaters
+    stay visible and huge basins do not overflow the map.
+    """
+
+    if not math.isfinite(area_ha) or area_ha <= 0:
+        return float(clamp_min)
+    area_km2 = float(area_ha) / 100.0
+    width = 3.0 * math.sqrt(area_km2) * max(float(factor), 0.0)
+    return float(min(max(width, clamp_min), clamp_max))
+
+
+def river_depth_m(
+    width_m: float,
+    factor: float = 1.0,
+    clamp_min: float = 0.3,
+    clamp_max: float = 40.0,
+) -> float:
+    """Mean river depth from bankfull width (power law).
+
+    ``D = 0.55 * W**0.6`` metres, scaled by ``factor`` and clamped so very
+    small channels remain representable.
+    """
+
+    if not math.isfinite(width_m) or width_m <= 0:
+        return float(clamp_min)
+    depth = 0.55 * float(width_m) ** 0.6 * max(float(factor), 0.0)
+    return float(min(max(depth, clamp_min), clamp_max))
+
+
+def suggest_vertical_exaggeration(
+    relief_m: float,
+    extent_width_m: float,
+    target_fraction: float = 0.12,
+) -> float:
+    """Suggest a display vertical exaggeration from terrain relief.
+
+    The heuristic aims for apparent relief ≈ 12% of the map width, so peaks,
+    valleys and ridges are clearly visible without being distorted, and
+    clamps to a sensible [0.5, 10.0] range. Returns 1.0 for degenerate input.
+    """
+
+    if (
+        not math.isfinite(relief_m)
+        or not math.isfinite(extent_width_m)
+        or relief_m <= 0
+        or extent_width_m <= 0
+    ):
+        return 1.0
+    exag = float(target_fraction) * float(extent_width_m) / float(relief_m)
+    return float(round(min(max(exag, 0.5), 10.0), 1))
+
+
 def utm_epsg_for_lon_lat(longitude: float, latitude: float) -> int:
     """Return a WGS 84 UTM EPSG code for a longitude/latitude position."""
 

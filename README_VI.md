@@ -31,12 +31,14 @@
 
 - **Bảo toàn dữ liệu gốc (Zero Data Distortion)**: Các lớp raster phân tích (Slope, Aspect, TRI, TWI...) lưu giữ nguyên vẹn giá trị vật lý thực tế (độ, radian, mét, chỉ số), phục vụ tính toán không gian chính xác.
 - **Trợ lý thiết lập thông minh (Smart Setup)**: Tự đề xuất khoảng cao đều theo tỷ lệ bản đồ và mức chênh cao (snap vào bảng chuẩn `1/2/2.5/5/10/20/25/50/100`), **thư viện 20 bảng màu** với preview gradient trực tiếp trên combo, nhóm **Dark Terrain** (6 thang màu tối thực thụ với mốc độ cao tuyệt đối, tự chuyển sang theme Night Dark), theme **Dark / Night** kèm swatch xem trước.
-- **Mạng sông suối đa điểm liên tục (Continuous Polyline)**: Thuật toán dò tuyến thủy văn D8 nối liền các pixel thành các đường sông suối mượt mà với bảng thuộc tính phong phú (`ORDER`, `LENGTH_M`, `AREA_HA`) — hỗ trợ làm trơn Chaikin / đơn giản hóa Douglas–Peucker.
+- **Mạng sông suối đa điểm liên tục (Continuous Polyline)**: Thuật toán dò tuyến thủy văn D8 nối liền các pixel thành các đường sông suối mượt mà với bảng thuộc tính phong phú (`ORDER`, `LENGTH_M`, `AREA_HA`) cộng thêm **hình học thủy lực thực** (`WIDTH_M` = $3\sqrt{A}$, `DEPTH_M` = $0.55\,W^{0.6}$) xuất vào GeoPackage — hỗ trợ làm trơn Chaikin / đơn giản hóa Douglas–Peucker.
 - **Pipeline một chạm đúng dependency**: DEM chỉ preprocess một lần; hydrology chạy trước SPI/STI/sạt lở/đa hiểm họa; slope và TWI được tự bật có khai báo. Không dùng accumulation cache hoặc slope làm drainage proxy.
 - **Chỉ số đa hiểm họa & Gói GeoPackage**: Chỉ số tổng hợp có trọng số (sạt lở × độ dốc × TWI) và gộp **toàn bộ sản phẩm raster + vector vào một file `.gpkg` duy nhất** để chia sẻ (raster byte nén PNG không mất dữ liệu, raster float theo chuẩn OGC 2D-gridded-coverage).
 - **In 3D & Tự động hóa quy trình**: Xuất mesh STL/OBJ (tự giảm độ phân giải, phóng đại độ cao, đế đặc kín nước), preset theo ngành (Đô thị / Nông nghiệp / Thiên tai / Khai khoáng) một chạm, nhật ký lịch sử 20 lần chạy gần nhất, và **xuất project QGIS (.qgz)** — lưu toàn bộ lớp, style, nhóm lớp và layout vào thư mục đầu ra.
 - **Map Design Studio**: chọn độc lập mẫu layout, style bản đồ và bảng màu độ cao; các vùng an toàn giúp title, legend, mũi tên Bắc, thước tỷ lệ và nguồn dữ liệu không đè lên nhau.
 - **3D WebGIS Studio (`.html`)**: Chọn chất lượng 256/384/512, đúng tỷ lệ địa lý/tọa độ và có thể chọn GeoTIFF/COG hoặc GeoJSON để đọc trực tiếp trong trình duyệt.
+- **Đổi style KHÔNG cần chạy lại pipeline**: đổi bảng màu, theme cartography, mẫu thiết kế hoặc font → canvas restyle trực tiếp (debounce 600 ms) — hoặc dùng **🎨 Apply Style to Existing Outputs** để đẩy style hiện tại vào canvas, bộ QML và layout của lần chạy trước. Phân tích không bao giờ chạy lại và `report.json` không bao giờ bị đụng tới.
+- **Smart Defaults (tab Assistant)**: năm gợi ý từ phân tích DEM — khoảng cao đều, ngưỡng sinh dòng, hệ số bề rộng/độ sâu sông, độ phóng đại trục đứng và hệ tọa độ làm việc — mỗi gợi ý kèm giải thích rõ ràng và nút Apply một chạm.
 - **Báo cáo Topographic Intelligence Report (`.html`)**: Dashboard tổng hợp với biểu đồ hoa hướng dốc (Aspect Rose), biểu đồ tần suất cao độ và ma trận đánh giá đất xây dựng theo TCVN.
 - **Tương thích kép QGIS 3 (Qt5) & QGIS 4 (Qt6)**: Đã xử lý toàn bộ scoped enums và tương thích hoàn toàn trên môi trường macOS, Windows, Linux.
 
@@ -151,13 +153,13 @@ Xuất ra file HTML tổng hợp (`<prefix>_topographic_intelligence_report.html
 ## 🚀 Hướng Dẫn Cài Đặt
 
 ### Cách 1: Cài đặt qua file ZIP (Khuyến nghị)
-1. Tải file `terrain_product_studio-2.7.0.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
+1. Tải file `terrain_product_studio-3.0.2.zip` tại mục [Releases](https://github.com/hulauwa/terrain-product-studio/releases).
 2. Trong QGIS, vào menu **Plugins (Tiện ích)** $\rightarrow$ **Manage and Install Plugins... (Quản lý và Cài đặt Tiện ích...)**.
 3. Chọn tab **Install from ZIP (Cài đặt từ ZIP)** $\rightarrow$ Chọn file `.zip` vừa tải $\rightarrow$ Nhấn **Install Plugin**.
 
 > **Không cài** file từ nút **Code → Download ZIP** của GitHub. File đó bọc cả repository nên QGIS không tìm thấy `metadata.txt` đúng vị trí. Hãy dùng file ZIP có phiên bản trong mục **Releases**.
 
-> **v2.7.0**: Có 6 preset nhẹ kèm ảnh xem trước, mỗi preset gộp layout, style lớp QGIS, bảng màu DEM số và kiểu lưới. Mặc định khuyến nghị vẫn đơn giản, phần nâng cao được thu gọn. Layout xuất ra khóa lại vùng an toàn sau khi QGIS fit extent nên không còn đè các thành phần lên nhau.
+> **v3.0.2**: Viewer 3D WebGIS được khôi phục về engine 2.7.1 đã kiểm chứng (template inline, khung tọa độ lưới, đầy đủ công cụ cũ) trong khi mọi tính năng khác của 3.0.0 được giữ: đổi style không cần chạy lại pipeline (restyle canvas debounce trực tiếp + nút **Apply Style to Existing Outputs**), tab Assistant gợi ý thông minh (khoảng cao đều, ngưỡng sinh dòng, hệ số sông, CRS) và hình học thủy lực thực `WIDTH_M`/`DEPTH_M` trong GeoPackage.
 
 ### Cách 2: Sao chép thủ công vào thư mục Plugins của QGIS
 Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng với hệ điều hành:
@@ -170,18 +172,20 @@ Sao chép thư mục `terrain_product_studio` vào đường dẫn tương ứng
 ## 📖 Hướng Dẫn Sử Dụng Chi Tiết
 
 1. Mở plugin từ menu **Raster** $\rightarrow$ **Terrain Product Studio** $\rightarrow$ **Terrain Product Studio Panel** (hoặc click icon trên thanh công cụ).
-2. **1 · Input Data**: Chọn lớp DEM và band độ cao. Nhấn **Inspect DEM** để xem thông số độ phân giải và đề xuất tỷ lệ/khoảng cao đều.
+2. **1 · Input Data**: Chọn lớp DEM và band độ cao. DEM được phân tích tự động (debounce 700 ms) — tab **Assistant** tự điền các gợi ý thông minh. Nhấn **Inspect DEM** nếu muốn xem lại báo cáo thủ công.
 3. **2 · Processing Extent**: Chọn phạm vi xử lý (*Toàn bộ DEM*, *Khung nhìn hiện tại*, hoặc *Theo lớp ranh giới*).
 4. **3 · Output**: Chọn thư mục lưu kết quả (mặc định lưu tại thư mục `temp/` nội bộ của plugin) và tiền tố đặt tên file (`prefix`).
 5. **Cấu hình các tab**:
+   - Tab **Assistant**: bốn gợi ý từ phân tích DEM — khoảng cao đều, ngưỡng sinh dòng, hệ số bề rộng/độ sâu sông và hệ tọa độ làm việc — mỗi gợi ý kèm lý do và nút **Apply all**.
    - Tab **Products**: Chọn **preset theo ngành** (Đô thị / Nông nghiệp / Thiên tai / Khai khoáng) hoặc tự tick sản phẩm; cài làm trơn và trọng số chỉ số đa hiểm họa; tick **Create QGIS project (.qgz)** để lưu project đã style vào thư mục đầu ra.
    - Tab **Contours**: Tinh chỉnh khoảng cao đều, bội số đường đồng mức cái và **ngưỡng điểm đỉnh (% biên độ cao độ)** — chỉ giữ đỉnh thuộc top N% dải cao độ (0 = Tắt).
-   - Tab **Hydrology**: Bật trích xuất thủy văn và ngưỡng diện tích tụ thủy sinh dòng ($ha$).
+   - Tab **Hydrology**: Bật trích xuất thủy văn, ngưỡng diện tích tụ thủy sinh dòng ($ha$) và **hệ số bề rộng / độ sâu sông** (1.0 = hình học thủy lực thực Horton–Leopold) — nguồn của trường `WIDTH_M`/`DEPTH_M`.
    - Tab **Layout**: Chọn riêng mẫu layout và style bản đồ, kiểm tra độ sẵn sàng, thêm thiết kế vào hàng đợi map book và xuất nhiều PDF/PNG. Bảng màu độ cao chọn riêng trong **Settings**.
-   - Tab **Settings**: Chọn chất lượng Web 3D, phóng đại độ cao và độ dày đế cho **xuất STL/OBJ in 3D**.
+   - Tab **Settings**: Chất lượng Web 3D (256/384/512), phóng đại độ cao và độ dày đế cho **xuất STL/OBJ in 3D** (STL luôn giữ tỷ lệ tuyệt đối; Z factor chỉ là lựa chọn lúc in).
    - Tab **Inspect**: Mở lại thư mục kết quả / báo cáo của bất kỳ lần chạy nào trong 20 lần gần nhất.
 6. Nhấn **Build Product Package** để bắt đầu xử lý.
 7. Khi hoàn thành, các lớp dữ liệu sẽ tự động nạp vào QGIS. Bạn có thể nhấn ngay nút **🌐 View 3D Web Map** hoặc **📊 View Report** để khám phá sản phẩm 3D và báo cáo trên trình duyệt.
+8. **Đổi style không chạy lại**: đổi bảng màu / cartography / mẫu thiết kế / font → canvas restyle trực tiếp (debounce). Với kết quả lần chạy trước — canvas, bộ QML, layout in và viewer 3D — nhấn **🎨 Apply Style to Existing Outputs**; phân tích không bao giờ chạy lại.
 
 ---
 
@@ -193,6 +197,8 @@ terrain_product_studio/
 │   ├── build_package.py       # Thuật toán Processing chính: gói sản phẩm đầy đủ
 │   ├── build_hydrology.py     # Thuật toán Processing trích xuất thủy văn & lưu vực
 │   └── inspect_dem.py         # Thuật toán kiểm tra DEM
+├── assets/
+│   └── preset_previews/       # Ảnh xem trước preset theo ngành
 ├── core/
 │   ├── bundle.py              # Gộp toàn bộ raster + vector vào một GeoPackage
 │   ├── dem_info.py            # Kiểm tra DEM & đề xuất thông minh theo tỷ lệ
@@ -200,8 +206,10 @@ terrain_product_studio/
 │   ├── geomorphon.py          # Phân loại địa hình Jasiewicz & Stepinski
 │   ├── history.py             # Nhật ký lịch sử chạy (20 lần gần nhất)
 │   ├── intelligence_report.py # Trình tạo Báo cáo Phân tích Thông minh (HTML)
-│   ├── layers.py              # Xếp lớp & nhóm lớp trong QGIS
+│   ├── layers.py              # Xếp lớp & nhóm lớp; quy trình style dùng chung
 │   ├── layouts.py             # Trình tạo bản in (khổ giấy, theme)
+│   ├── restyle.py             # Đổi style kết quả cũ từ report.json (không chạy lại)
+│   ├── smart_defaults.py      # Gợi ý thông minh từ DEM (contour, sông, CRS...)
 │   ├── math_utils.py          # nice_interval, snap khoảng cao đều, vệ sinh prefix
 │   ├── native_hydrology.py    # Dò tuyến D8 & nối polyline sông suối Strahler
 │   ├── presets.py             # Palette địa hình, theme cartography, preset ngành
@@ -210,7 +218,10 @@ terrain_product_studio/
 │   ├── spot_elevations.py     # Nhận diện đỉnh núi & lọc độ nổi địa hình
 │   ├── styles.py              # Bộ phong cách hiển thị & nhãn bản đồ tự động
 │   ├── thematic_terrain.py    # TCVN, sạt lở, đa hiểm họa, SPI/STI
-│   └── web_3d_viewer.py       # Trình tạo 3D WebGIS Studio tương tác (WebGL)
+│   └── web_3d_viewer.py       # Trình tạo 3D WebGIS Studio tương tác (WebGL v2)
+├── ui/
+│   ├── smart_defaults.py      # Thám sát DEM bất đồng bộ debounce (QgsTask)
+│   └── task_controller.py     # Vòng đời tác vụ Processing bất đồng bộ
 ├── dock.py                    # Giao diện điều khiển Dock widget
 └── plugin.py                  # Điểm khởi động và đăng ký plugin trong QGIS
 ```

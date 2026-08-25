@@ -171,6 +171,8 @@ def inspect_dem_layer(layer, band: int = 1, raster_outputs: int = 8) -> Dict[str
         "maximum": maximum,
         "robust_minimum": robust_minimum,
         "robust_maximum": robust_maximum,
+        "relief_m": float(robust_maximum - robust_minimum),
+        "extent_width_m": float(extent_width_m),
         "has_nodata": has_nodata,
         "nodata": nodata_value,
         "estimated_output_bytes": estimate,

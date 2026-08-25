@@ -3,7 +3,8 @@
 Features:
 - Priority-flood depression conditioning and deterministic D8 flow routing.
 - Continuous multi-point polyline chaining with Strahler stream ordering.
-- Rich attribute vector output (GeoPackage and GeoJSON): ORDER, ORDER_NAME, LENGTH_M, AREA_HA.
+- Rich attribute vector output (GeoPackage and GeoJSON): ORDER, ORDER_NAME,
+  LENGTH_M, AREA_HA, WIDTH_M, DEPTH_M (Horton hydraulic-geometry scaling).
 - Native Topographic Wetness Index (TWI) calculation.
 """
 
@@ -14,6 +15,8 @@ import math
 import os
 import numpy as np
 from osgeo import gdal, ogr, osr
+
+from .math_utils import river_depth_m, river_width_m
 
 
 MAX_HYDROLOGY_CELLS = 25_000_000
@@ -75,6 +78,8 @@ def _write_continuous_stream_network(
     accumulation: np.ndarray,
     pixel_area_m2: float,
     cell_size_m: float,
+    width_factor: float = 1.0,
+    depth_factor: float = 1.0,
 ):
     """Trace continuous stream polylines, calculate Strahler order, and export to GPKG & GeoJSON."""
     width = reference.RasterXSize
@@ -166,6 +171,7 @@ def _write_continuous_stream_network(
                 length_m += math.hypot(dx, dy)
 
             area_ha = acc_max * pixel_area_m2 / 10000.0
+            width_m = river_width_m(area_ha, width_factor)
             reaches.append({
                 "coords": coords,
                 "order": order_val,
@@ -173,6 +179,8 @@ def _write_continuous_stream_network(
                 "length_m": round(length_m, 2),
                 "area_ha": round(area_ha, 2),
                 "acc_cells": int(acc_max),
+                "width_m": round(width_m, 2),
+                "depth_m": round(river_depth_m(width_m, depth_factor), 2),
             })
 
     # Start traces
@@ -208,6 +216,8 @@ def _write_continuous_stream_network(
     layer.CreateField(ogr.FieldDefn("LENGTH_M", ogr.OFTReal))
     layer.CreateField(ogr.FieldDefn("AREA_HA", ogr.OFTReal))
     layer.CreateField(ogr.FieldDefn("ACC_CELLS", ogr.OFTInteger64))
+    layer.CreateField(ogr.FieldDefn("WIDTH_M", ogr.OFTReal))
+    layer.CreateField(ogr.FieldDefn("DEPTH_M", ogr.OFTReal))
 
     layer.StartTransaction()
     feature_defn = layer.GetLayerDefn()
@@ -225,6 +235,8 @@ def _write_continuous_stream_network(
         feat.SetField("LENGTH_M", reach["length_m"])
         feat.SetField("AREA_HA", reach["area_ha"])
         feat.SetField("ACC_CELLS", reach["acc_cells"])
+        feat.SetField("WIDTH_M", reach["width_m"])
+        feat.SetField("DEPTH_M", reach["depth_m"])
         layer.CreateFeature(feat)
         max_order_found = max(max_order_found, reach["order"])
 
@@ -370,6 +382,8 @@ def calculate_native_hydrology(
     twi_path=None,
     basin_path=None,
     feedback=None,
+    width_factor: float = 1.0,
+    depth_factor: float = 1.0,
 ):
     """Compute D8 accumulation, Strahler river polylines, watershed basins, and TWI."""
     direction_dataset = gdal.Open(direction_path, gdal.GA_ReadOnly)
@@ -478,6 +492,8 @@ def calculate_native_hydrology(
         accumulation,
         pixel_area_m2,
         cell_size_m,
+        width_factor=width_factor,
+        depth_factor=depth_factor,
     )
 
     # Topographic Wetness Index (TWI)
@@ -539,6 +555,8 @@ def calculate_complete_hydrology(
     vertical_meters_per_unit,
     twi_path=None,
     basin_path=None,
+    width_factor: float = 1.0,
+    depth_factor: float = 1.0,
 ):
     _condition_dem(
         input_dem_path,
@@ -558,4 +576,6 @@ def calculate_complete_hydrology(
         pixel_area_m2=pixel_area_m2,
         twi_path=twi_path,
         basin_path=basin_path,
+        width_factor=width_factor,
+        depth_factor=depth_factor,
     )

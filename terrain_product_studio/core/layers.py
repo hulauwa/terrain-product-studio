@@ -70,8 +70,7 @@ def add_terrain_results(
     # Dark Terrain maps: stronger hillshade and a deep ink canvas background
     # so NoData / background reads as #090B0D instead of white.
     dark = bool(CARTOGRAPHY_PRESETS.get(cartography_preset, {}).get("dark"))
-    hillshade_opacity = 0.45 if dark else None
-    
+
     # Order groups so top-most visual layers (vectors) are at the top of the Layer Tree panel
     hydro_group = package_group.addGroup("01 · Hydrology")
     contour_group = package_group.addGroup("02 · Elevation & contours")
@@ -228,10 +227,50 @@ def add_terrain_results(
     if "COLOR_RELIEF" in nodes:
         base_group.insertChildNode(len(base_group.children()), nodes["COLOR_RELIEF"].clone())
         base_group.removeChildNode(nodes["COLOR_RELIEF"])
+    apply_result_styles(
+        layers,
+        contour_interval,
+        index_multiplier,
+        z_unit,
+        cartography_preset,
+        font_family,
+        palette_key,
+    )
+
+    analysis_group.setItemVisibilityChecked(False)
+    quality_group.setItemVisibilityChecked(False)
+    if dark:
+        try:
+            project.setBackgroundColor(QColor("#090b0d"))
+        except (AttributeError, TypeError):
+            pass  # QgsProject.setBackgroundColor is QGIS 3.26+; keep defaults
+    if return_layers:
+        return loaded, failed, layers
+    return loaded, failed
+
+
+def apply_result_styles(
+    layers,
+    contour_interval=10.0,
+    index_multiplier=5,
+    z_unit="m",
+    cartography_preset="usgs_classic",
+    font_family=None,
+    palette_key=None,
+):
+    """Re-apply the full analytical style suite to generated result layers.
+
+    Pure style application — only renderers and labeling are mutated; data
+    values are never touched and no layers or groups are created or removed.
+    This is the single routine behind both ``add_terrain_results()`` and
+    ``restyle_outputs()``, so a restyle always matches a fresh build.
+    """
+
+    dark = bool(CARTOGRAPHY_PRESETS.get(cartography_preset, {}).get("dark"))
+    hillshade_opacity = 0.45 if dark else None
+
     if "WORKING_DEM" in layers:
-        apply_dem_style(
-            layers["WORKING_DEM"], cartography_preset, palette_key
-        )
+        apply_dem_style(layers["WORKING_DEM"], cartography_preset, palette_key)
     for key in ("HILLSHADE", "MULTI_HILLSHADE"):
         if key in layers:
             if hillshade_opacity is None:
@@ -295,14 +334,3 @@ def add_terrain_results(
         apply_sti_style(layers["STI"])
     if "MULTIHAZARD" in layers:
         apply_multihazard_style(layers["MULTIHAZARD"])
-
-    analysis_group.setItemVisibilityChecked(False)
-    quality_group.setItemVisibilityChecked(False)
-    if dark:
-        try:
-            project.setBackgroundColor(QColor("#090b0d"))
-        except (AttributeError, TypeError):
-            pass  # QgsProject.setBackgroundColor is QGIS 3.26+; keep defaults
-    if return_layers:
-        return loaded, failed, layers
-    return loaded, failed

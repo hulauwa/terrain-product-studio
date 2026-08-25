@@ -1,5 +1,48 @@
 # Changelog
 
+## 3.0.2 — 2026-08-22
+
+The interactive 3D WebGIS viewer is restored to the proven 2.7.1 engine. The
+3.0.0 viewer redesign (real-metre world frame, project-layer overlay
+textures, OSM/Esri basemaps, vertical-exaggeration parameter and the external
+`assets/scene3d_template.html` template) is removed; the viewer is again
+generated from the battle-tested inline template with the grid-cell world
+frame and the same toolset (flood simulation, cross-section, solar shadow,
+AI terrain assistant, drone flythrough, surface inspector) as release 2.7.1.
+Everything else shipped in 3.0.0 is kept.
+
+### Kept from 3.0.0
+- **Restyle without regeneration**: `core/restyle.py` re-applies the current
+  cartography to the loaded layers (renderers/labeling only — analytical
+  values untouched), to the reusable QML style packs and to the plugin's
+  layouts via merged map-item style overrides. The dock's
+  **🎨 Apply Style to Existing Outputs** and the live debounced canvas
+  restyle (600 ms) work as before — only the 3D viewer regeneration path
+  was removed.
+- **Smart defaults (Assistant tab)**: four suggestions derived from the DEM
+  analysis — contour interval, stream threshold (0.035 √(10/px) density
+  heuristic), river width/depth factors with a headwater worked example and
+  the working CRS (the 3D viewer exaggeration suggestion is gone with the
+  viewer). The inspection runs in a debounced (700 ms) `QgsTask` and an
+  untouched stream threshold is auto-sent with the suggested value.
+- **Hydrology hydraulic geometry**: `WIDTH_M` / `DEPTH_M` (`OFTReal`) are
+  exported into the GeoPackage and inherited by the GeoJSON copy through
+  `CopyLayer`; the Hydrology tab keeps the river width/depth factor
+  spinboxes (0.25–10 / 0.25–5, default 1.0 = real hydraulic geometry).
+- Engineering & compatibility: `layers.apply_result_styles` extracted from
+  `add_terrain_results` so a fresh build and a restyle share exactly one
+  style routine; hillshade keeps `Z_FACTOR = 1.0` (tooltip documents that
+  exaggeration is a display choice, not a shading one).
+
+### Removed with the viewer
+- `core/scene_layers.py`, `assets/scene3d_template.html` and the
+  `assets/vendor/` client engines are deleted.
+- The `SCENE_OVERLAY_CONFIG`, `SCENE_TEXTURE_SIZE`, `SCENE_BASEMAP`,
+  `SCENE_EMBED_TEXTURES`, `SCENE_OVERLAY_HEIGHT_M` and
+  `VIEWER_VERTICAL_EXAGGERATION` Processing parameters, the
+  `SCENE_OVERLAYS` output and the dock's **3D Scene** tab are removed;
+  the viewer returns to the 2.7.1 `grid_size` quality choice only.
+
 ## 2.7.1 — 2026-08-21
 
 - Fixed the QGIS 3.40+ / QGIS 4 deprecation warning from `QgsRasterInterface.bandStatistics()`: band statistics now go through a centralized compatibility helper which uses the typed `Qgis.RasterBandStatistic` overload instead of the deprecated integer argument, across DEM inspection, layer styling and bundle building.

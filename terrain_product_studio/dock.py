@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from datetime import datetime, timezone
 
-from qgis.PyQt.QtCore import QDir, QCoreApplication, QUrl, Qt
+from qgis.PyQt.QtCore import QDir, QCoreApplication, QTimer, QUrl, Qt
 from qgis.PyQt.QtGui import (
     QBrush,
     QColor,
@@ -46,6 +47,8 @@ from qgis.PyQt.QtWidgets import (
 from qgis.core import (
     QgsApplication,
     QgsMapLayerProxyModel,
+    QgsMapLayerStyle,
+    QgsMapLayerType,
     QgsProject,
     QgsRasterLayer,
     QgsReferencedRectangle,
@@ -62,9 +65,11 @@ from .core.design_presets import (
 from .core.export_3d import export_obj, export_stl
 from .core.history import append_history, load_history
 from .core.intelligence_report import generate_intelligence_report
-from .core.layers import add_terrain_results
+from .core.layers import add_terrain_results, apply_result_styles
 from .core.layouts import create_terrain_layout, create_terrain_layouts
 from .core.layout_styles import export_style_pack_qml
+from .core.restyle import parse_run_manifest, restyle_outputs
+from .core.smart_defaults import compute_smart_defaults
 from .core.cartography_qa import inspect_layer_recipe, validate_layout_config
 from .core.font_resolver import resolve_font_family
 from .core.math_utils import sanitize_prefix, unique_path
@@ -82,6 +87,7 @@ from .core.qgis_compat import font_families
 from .core.share_package import write_share_manifest
 from .core.style_packs import LAYOUT_TEMPLATES
 from .core.web_3d_viewer import generate_3d_web_viewer
+from .ui.smart_defaults import DebouncedDemInspector
 from .ui.task_controller import ProcessingTaskController
 
 
@@ -99,6 +105,15 @@ class TerrainStudioDock(QDockWidget):
         self._contour_suggestion = None
         self._last_layout_layers = None
         self._font_sync_guard = False
+        self._last_run_manifest = None
+        self._last_result_layers = {}
+        self._last_layout_names = []
+        self._restyle_canvas_timer = None
+        self._dem_info = None
+        self._suggestions = []
+        self._suggested_stream_threshold = None
+        self._stream_threshold_touched = False
+        self._suggestion_buttons = {}
         self._build_ui()
         self._connect_signals()
         self._on_layer_changed(self.dem_combo.currentLayer())
@@ -219,6 +234,9 @@ class TerrainStudioDock(QDockWidget):
         self.tabs.addTab(self._scrollable_options_page(self._create_products_tab()), self.tr("Products"))
         self.tabs.addTab(self._scrollable_options_page(self._create_contour_tab()), self.tr("Contours"))
         self.tabs.addTab(self._scrollable_options_page(self._create_hydrology_tab()), self.tr("Hydrology"))
+        self.assistant_tab_index = self.tabs.addTab(
+            self._scrollable_options_page(self._create_assistant_tab()), self.tr("Assistant")
+        )
         self.cartography_tab_index = self.tabs.addTab(
             self._scrollable_options_page(self._create_cartography_tab()), self.tr("Layout")
         )
@@ -285,8 +303,17 @@ class TerrainStudioDock(QDockWidget):
         self.open_report_button.setToolTip(self.tr("Open Topographic Intelligence Report dashboard in default web browser"))
         self.docs_button = QPushButton(self.tr("📖 Documentation"))
         self.docs_button.setToolTip(self.tr("Open online user manual and scientific documentation on GitHub"))
+        self.restyle_button = QPushButton(self.tr("🎨 Apply Style to Existing Outputs"))
+        self.restyle_button.setEnabled(False)
+        self.restyle_button.setToolTip(
+            self.tr(
+                "Restyle the last run's canvas layers, QML style packs, layouts "
+                "and 3D viewer with the current cartography — no pipeline re-run."
+            )
+        )
         results_bar.addWidget(self.open_3d_button)
         results_bar.addWidget(self.open_report_button)
+        results_bar.addWidget(self.restyle_button)
         results_bar.addWidget(self.docs_button)
         footer_layout.addLayout(results_bar)
         root_layout.addWidget(footer, 0)
@@ -459,6 +486,30 @@ class TerrainStudioDock(QDockWidget):
             [self.tr("Off"), self.tr("Light"), self.tr("Medium"), self.tr("Heavy")]
         )
         layout.addRow(self.tr("River smoothness level"), self.stream_smoothing_combo)
+        self.river_width_factor_spin = QDoubleSpinBox()
+        self.river_width_factor_spin.setRange(0.25, 10.0)
+        self.river_width_factor_spin.setDecimals(2)
+        self.river_width_factor_spin.setSingleStep(0.25)
+        self.river_width_factor_spin.setValue(1.0)
+        self.river_width_factor_spin.setToolTip(
+            self.tr(
+                "Multiplies the Horton river width estimate W = 3·√A (m). "
+                "Factor 1.0 = real hydraulic geometry (see Assistant tab)."
+            )
+        )
+        self.river_depth_factor_spin = QDoubleSpinBox()
+        self.river_depth_factor_spin.setRange(0.25, 5.0)
+        self.river_depth_factor_spin.setDecimals(2)
+        self.river_depth_factor_spin.setSingleStep(0.25)
+        self.river_depth_factor_spin.setValue(1.0)
+        self.river_depth_factor_spin.setToolTip(
+            self.tr(
+                "Multiplies the power-law river depth estimate D = 0.55·W^0.6 (m). "
+                "Factor 1.0 = real hydraulic geometry (see Assistant tab)."
+            )
+        )
+        layout.addRow(self.tr("River width factor"), self.river_width_factor_spin)
+        layout.addRow(self.tr("River depth factor"), self.river_depth_factor_spin)
         layout.addRow(self.twi_check)
         layout.addRow(self.basins_check)
         self.hydrology_note = QLabel(
@@ -470,6 +521,36 @@ class TerrainStudioDock(QDockWidget):
         self.hydrology_note.setWordWrap(True)
         layout.addRow(self.hydrology_note)
         return tab
+
+    def _create_assistant_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        help_label = QLabel(
+            self.tr(
+                "Smart defaults are derived automatically from the selected "
+                "DEM (contours, stream threshold, river dimensions, 3D "
+                "exaggeration, working CRS). Apply one suggestion or all."
+            )
+        )
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
+        self.assistant_status = QLabel(
+            self.tr("Select a DEM layer — suggestions appear automatically.")
+        )
+        self.assistant_status.setWordWrap(True)
+        self.assistant_status.setStyleSheet("color: #777;")
+        layout.addWidget(self.assistant_status)
+        self.assistant_rows = QWidget()
+        self.assistant_rows_layout = QVBoxLayout(self.assistant_rows)
+        self.assistant_rows_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.assistant_rows)
+        self.apply_all_suggestions_button = QPushButton(
+            self.tr("Apply all suggestions")
+        )
+        self.apply_all_suggestions_button.setEnabled(False)
+        layout.addWidget(self.apply_all_suggestions_button)
+        layout.addStretch(1)
+        return page
 
     def _create_cartography_tab(self):
         tab = QWidget()
@@ -705,6 +786,14 @@ class TerrainStudioDock(QDockWidget):
         self.vertical_exaggeration.setRange(0.01, 100.0)
         self.vertical_exaggeration.setDecimals(2)
         self.vertical_exaggeration.setValue(1.0)
+        self.vertical_exaggeration.setToolTip(
+            self.tr(
+                "Hillshade keeps the true elevation scale at 1.0 — slopes and "
+                "gradient directions are computed from real heights. A Z "
+                "factor only distorts the shading; use the 3D viewer's own "
+                "exaggeration for display."
+            )
+        )
         self.azimuth = QDoubleSpinBox()
         self.azimuth.setRange(0.0, 360.0)
         self.azimuth.setValue(315.0)
@@ -821,6 +910,16 @@ class TerrainStudioDock(QDockWidget):
         self.index_multiplier.valueChanged.connect(self._update_index_preview)
         self.z_unit_combo.currentIndexChanged.connect(self._update_index_preview)
         self.hydrology_check.toggled.connect(self._update_hydrology_controls)
+        # Assistant: debounced asynchronous DEM inspection (700 ms), sharing
+        # the manual Inspect DEM sink with a generation counter.
+        self.dem_inspector = DebouncedDemInspector(self)
+        self.dem_inspector.inspected.connect(self._on_dem_inspected)
+        self.dem_inspector.failed.connect(self._on_dem_inspect_failed)
+        self.band_spin.valueChanged.connect(self._on_dem_input_changed)
+        self.stream_threshold.valueChanged.connect(self._mark_stream_threshold_touched)
+        self.apply_all_suggestions_button.clicked.connect(
+            self._apply_all_suggestions
+        )
         self.cartography_combo.currentIndexChanged.connect(
             self._on_cartography_preset_changed
         )
@@ -840,6 +939,19 @@ class TerrainStudioDock(QDockWidget):
             self.advanced_design_body.setVisible
         )
         self.palette_combo.currentIndexChanged.connect(self._mark_design_custom)
+        # Live restyle: cartography controls re-apply styles to the last run's
+        # outputs (debounced — canvas at 600 ms, viewer at 1.5 s). Only visual
+        # state is touched; the pipeline is never re-run.
+        self.cartography_combo.currentIndexChanged.connect(
+            self._schedule_live_restyle
+        )
+        self.palette_combo.currentIndexChanged.connect(
+            self._schedule_live_restyle
+        )
+        self.design_preset_combo.currentIndexChanged.connect(
+            self._schedule_live_restyle
+        )
+        self.font_combo.currentTextChanged.connect(self._schedule_live_restyle)
         self.grid_mode_combo.currentIndexChanged.connect(
             self._on_grid_mode_changed
         )
@@ -880,6 +992,7 @@ class TerrainStudioDock(QDockWidget):
         self.extent_combo.currentIndexChanged.connect(self._on_extent_mode_changed)
         self.extent_layer_combo.layerChanged.connect(self._on_extent_mode_changed)
         self.tabs.currentChanged.connect(self._on_tab_changed)
+        self.restyle_button.clicked.connect(self._apply_style_to_outputs)
         self._update_hydrology_controls()
         self._update_layout_controls()
         self._on_extent_mode_changed()
@@ -1007,6 +1120,19 @@ class TerrainStudioDock(QDockWidget):
             self.tr("Suggested interval: — (run Inspect DEM)")
         )
         self.apply_suggestion_button.setEnabled(False)
+        # A new DEM invalidates every smart default (the next inspection
+        # recomputes them; the stream threshold is only auto-sent until the
+        # user touches the spinbox again).
+        self._dem_info = None
+        self._suggestions = []
+        self._suggested_stream_threshold = None
+        self._stream_threshold_touched = False
+        self._rebuild_assistant_rows()
+        self.apply_all_suggestions_button.setEnabled(False)
+        self.assistant_status.setText(
+            self.tr("Select a DEM layer — suggestions appear automatically.")
+        )
+        self.dem_inspector.set_inputs(layer, self.band_spin.value())
         if layer is not None and layer.isValid():
             self.prefix_edit.setText(sanitize_prefix(layer.name()))
             if hasattr(self, "layout_name_edit"):
@@ -1019,6 +1145,8 @@ class TerrainStudioDock(QDockWidget):
         enabled = self.hydrology_check.isChecked()
         for widget in (
             self.stream_threshold,
+            self.river_width_factor_spin,
+            self.river_depth_factor_spin,
             self.basins_check,
         ):
             widget.setEnabled(enabled)
@@ -1269,6 +1397,124 @@ class TerrainStudioDock(QDockWidget):
         if suggestion:
             self.contour_interval.setValue(float(suggestion))
 
+    # --- Assistant (smart defaults) -------------------------------------------------
+
+    @staticmethod
+    def _format_suggestion_value(suggestion):
+        if isinstance(suggestion.value, float):
+            return f"{suggestion.value:g} {suggestion.unit}".strip()
+        return f"{suggestion.value} {suggestion.unit}".strip()
+
+    def _on_dem_input_changed(self, *_args):
+        """Band changed — restart the debounced inspection."""
+        layer = self.dem_combo.currentLayer()
+        if layer is not None and layer.isValid() and not self.task_controller.active:
+            self.dem_inspector.set_inputs(layer, self.band_spin.value())
+
+    def _mark_stream_threshold_touched(self, *_args):
+        self._stream_threshold_touched = True
+
+    def _effective_stream_threshold(self):
+        """Auto-send the suggested threshold until the user edits it."""
+        if self._stream_threshold_touched or self._suggested_stream_threshold is None:
+            return self.stream_threshold.value()
+        return self._suggested_stream_threshold
+
+    def _on_dem_inspected(self, info, generation):
+        if generation != self.dem_inspector.generation:
+            return  # stale async result — a newer inspection superseded it
+        self._dem_info = info
+        suggested = float(
+            info.get("suggested_contour_interval")
+            or info.get("recommended_contour_interval")
+            or 10.0
+        )
+        self._contour_suggestion = suggested
+        self._suggestions = compute_smart_defaults(info)
+        self._suggested_stream_threshold = None
+        for suggestion in self._suggestions:
+            if suggestion.key == "stream_threshold":
+                self._suggested_stream_threshold = float(suggestion.value)
+        z_unit = self.z_unit_combo.currentIndex()
+        unit = "m" if z_unit == 0 else "ft"
+        estimated_scale = int(info.get("estimated_map_scale") or 0)
+        if estimated_scale > 0:
+            suggestion_text = (
+                f"{self.tr('Suggested interval')} (≈1:{estimated_scale:,} "
+                f"{self.tr('map scale')}): {suggested:g} {unit}"
+            )
+        else:
+            suggestion_text = f"{self.tr('Suggested interval')}: {suggested:g} {unit}"
+        self.contour_suggestion_label.setText(suggestion_text)
+        self.apply_suggestion_button.setEnabled(True)
+        self._rebuild_assistant_rows()
+        self.apply_all_suggestions_button.setEnabled(bool(self._suggestions))
+        self.assistant_status.setText(
+            self.tr(
+                f"{len(self._suggestions)} suggestion(s) for "
+                f"{info.get('name', '')}."
+            )
+        )
+
+    def _on_dem_inspect_failed(self, message, generation):
+        if generation != self.dem_inspector.generation:
+            return
+        self.assistant_status.setText(
+            self.tr(f"DEM inspection failed: {message}")
+        )
+
+    def _rebuild_assistant_rows(self):
+        while self.assistant_rows_layout.count():
+            item = self.assistant_rows_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._suggestion_buttons = {}
+        for suggestion in self._suggestions:
+            box = QGroupBox(
+                f"{suggestion.label}: {self._format_suggestion_value(suggestion)}"
+            )
+            box_layout = QVBoxLayout(box)
+            rationale = QLabel(suggestion.rationale)
+            rationale.setWordWrap(True)
+            box_layout.addWidget(rationale)
+            apply_button = QPushButton(self.tr("Apply"))
+            box_layout.addWidget(apply_button)
+            self._suggestion_buttons[suggestion.key] = apply_button
+            apply_button.clicked.connect(
+                lambda _checked=False, key=suggestion.key: self._apply_suggestion(key)
+            )
+            self.assistant_rows_layout.addWidget(box)
+
+    def _apply_suggestion(self, key):
+        suggestion = next(
+            (item for item in self._suggestions if item.key == key), None
+        )
+        if suggestion is None:
+            return
+        if key == "contour_interval":
+            self.contour_interval.setValue(float(suggestion.value))
+        elif key == "stream_threshold":
+            self.stream_threshold.setValue(float(suggestion.value))
+            self._stream_threshold_touched = True
+        elif key == "river_dimensions":
+            self.river_width_factor_spin.setValue(1.0)
+            self.river_depth_factor_spin.setValue(1.0)
+        elif key == "working_crs":
+            self.auto_reproject_check.setChecked(True)
+        self.report_edit.appendPlainText(
+            f"{self.tr('Assistant')}: {suggestion.label} → "
+            f"{self._format_suggestion_value(suggestion)}"
+        )
+
+    def _apply_all_suggestions(self):
+        for suggestion in self._suggestions:
+            self._apply_suggestion(suggestion.key)
+        self.iface.messageBar().pushSuccess(
+            "Terrain Product Studio",
+            self.tr(f"Applied {len(self._suggestions)} smart default(s)."),
+        )
+
     def _create_layout_now(self):
         if not self._last_layout_layers:
             QMessageBox.information(
@@ -1439,6 +1685,91 @@ class TerrainStudioDock(QDockWidget):
         if index == self.report_tab_index:
             self._reload_history()
 
+    def _apply_style_to_outputs(self):
+        """Restyle canvas, QML style packs and layouts from the last run."""
+        manifest_path = self._last_run_manifest
+        if not manifest_path or not os.path.isfile(manifest_path):
+            QMessageBox.information(
+                self,
+                self.tr("No recent run"),
+                self.tr(
+                    "Run the package build first — restyling needs the last "
+                    "run's report.json."
+                ),
+            )
+            return
+        plan = parse_run_manifest(manifest_path)
+        if plan is None:
+            QMessageBox.warning(
+                self,
+                self.tr("Cannot read report"),
+                self.tr(
+                    "The report.json could not be read — it may be incomplete "
+                    "or hand-edited."
+                ),
+            )
+            return
+        config = self._cartography_config()
+        try:
+            try:
+                self.setCursor(Qt.CursorShape.WaitCursor)
+            except AttributeError:
+                self.setCursor(getattr(Qt, "WaitCursor"))
+            count, notes = restyle_outputs(
+                plan,
+                project=QgsProject.instance(),
+                config=config,
+                layout_names=self._last_layout_names,
+                restyle_canvas=True,
+                restyle_qml=True,
+                restyle_layouts=True,
+            )
+            if self.iface and self.iface.mapCanvas():
+                self.iface.mapCanvas().refresh()
+        except Exception as error:
+            QMessageBox.warning(self, self.tr("Restyle failed"), str(error))
+            return
+        finally:
+            self.unsetCursor()
+        summary = f"{self.tr('Restyled')} {count} {self.tr('canvas layer(s)')}."
+        self.report_edit.appendPlainText(f"\n{summary}")
+        for note in notes:
+            self.report_edit.appendPlainText(f" · {note}")
+        self.iface.messageBar().pushSuccess("Terrain Product Studio", summary)
+
+    def _schedule_live_restyle(self, *_args):
+        """Debounce a canvas (600 ms) restyle on combo change."""
+        if self.task_controller.active:
+            return
+        if self._restyle_canvas_timer is None:
+            self._restyle_canvas_timer = QTimer(self)
+            self._restyle_canvas_timer.setSingleShot(True)
+            self._restyle_canvas_timer.setInterval(600)
+            self._restyle_canvas_timer.timeout.connect(self._live_restyle_canvas)
+        if self._last_run_manifest and self._last_result_layers:
+            self._restyle_canvas_timer.start()
+
+    def _live_restyle_canvas(self):
+        """Best-effort canvas restyle — errors surface on the explicit button."""
+        if self.task_controller.active or not self._last_result_layers:
+            return
+        config = self._cartography_config()
+        unit = "m" if self.z_unit_combo.currentIndex() == 0 else "ft"
+        try:
+            apply_result_styles(
+                self._last_result_layers,
+                self.contour_interval.value(),
+                self.index_multiplier.value(),
+                unit,
+                config["preset"],
+                config["font_family"],
+                config.get("palette_key"),
+            )
+            if self.iface and self.iface.mapCanvas():
+                self.iface.mapCanvas().refresh()
+        except Exception:
+            pass
+
     def _apply_industry_preset(self, index):
         """Uncheck everything, then tick the selected industry's products."""
         key = self.industry_combo.currentData()
@@ -1582,23 +1913,9 @@ class TerrainStudioDock(QDockWidget):
             QMessageBox.critical(self, self.tr("Could not inspect DEM"), str(error))
             return
         self.report_edit.setPlainText(format_dem_report(info))
-        suggested = float(
-            info.get("suggested_contour_interval")
-            or info["recommended_contour_interval"]
-        )
-        self._contour_suggestion = suggested
-        z_unit = self.z_unit_combo.currentIndex()
-        unit = "m" if z_unit == 0 else "ft"
-        estimated_scale = int(info.get("estimated_map_scale") or 0)
-        if estimated_scale > 0:
-            suggestion_text = (
-                f"{self.tr('Suggested interval')} (≈1:{estimated_scale:,} "
-                f"{self.tr('map scale')}): {suggested:g} {unit}"
-            )
-        else:
-            suggestion_text = f"{self.tr('Suggested interval')}: {suggested:g} {unit}"
-        self.contour_suggestion_label.setText(suggestion_text)
-        self.apply_suggestion_button.setEnabled(True)
+        # Same sink as the async inspector (mark_fresh bumps the generation,
+        # so a pending async result cannot overwrite this manual one).
+        self.dem_inspector.mark_fresh(info)
         self.tabs.setCurrentIndex(self.report_tab_index)
 
     def _update_index_preview(self):
@@ -1650,7 +1967,9 @@ class TerrainStudioDock(QDockWidget):
             "SIMPLIFY_TOLERANCE": self.simplify_tolerance.value(),
             "ACCUMULATION": None,
             "CREATE_HYDROLOGY": self.hydrology_check.isChecked(),
-            "STREAM_THRESHOLD_HA": self.stream_threshold.value(),
+            "STREAM_THRESHOLD_HA": self._effective_stream_threshold(),
+            "RIVER_WIDTH_FACTOR": self.river_width_factor_spin.value(),
+            "RIVER_DEPTH_FACTOR": self.river_depth_factor_spin.value(),
             "CREATE_BASINS": self.basins_check.isChecked(),
             "CREATE_TWI": (
                 self.hydrology_check.isChecked() and self.twi_check.isChecked()
@@ -1715,7 +2034,7 @@ class TerrainStudioDock(QDockWidget):
             "create_project": self.create_project_check.isChecked(),
             "create_share_manifest": self.share_manifest_check.isChecked(),
             "create_hydrology": self.hydrology_check.isChecked(),
-            "stream_threshold_ha": self.stream_threshold.value(),
+            "stream_threshold_ha": self._effective_stream_threshold(),
             "create_basins": self.basins_check.isChecked(),
             "contour_interval": self.contour_interval.value(),
             "index_multiplier": self.index_multiplier.value(),
@@ -1839,12 +2158,16 @@ class TerrainStudioDock(QDockWidget):
             palette_key=config.get("palette_key"),
         )
         self._last_layout_layers = layers
+        self._last_result_layers = layers
         self.create_layout_button.setEnabled(bool(layers))
         self.create_all_layouts_button.setEnabled(
             bool(layers) and self.create_layout_check.isChecked()
         )
         self._update_recipe_inspector()
         report_path = str(final_results.get("REPORT", ""))
+        if report_path and os.path.isfile(report_path):
+            self._last_run_manifest = report_path
+            self.restyle_button.setEnabled(True)
         self.report_edit.appendPlainText(
             f"\n{self.tr('Finished. Loaded')} {loaded} {self.tr('layers into project.')}\n{self.tr('Report')}: {report_path}"
         )
@@ -1921,6 +2244,7 @@ class TerrainStudioDock(QDockWidget):
                     self.iface.openLayoutDesigner(layouts[-1])
             except Exception as error:  # keep generated terrain products available
                 self.report_edit.appendPlainText(f"{self.tr('Layout error')}: {error}")
+        self._last_layout_names = created_layout_names
 
         if config.get("create_project"):
             try:
